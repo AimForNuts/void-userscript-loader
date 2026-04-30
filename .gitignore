@@ -1,2 +1,14 @@
 # Local reference file — not part of the modular repo
 userscript.js
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor artifacts
+.vscode/
+*.swp
+*.swo
+
+# If tooling is ever added
+node_modules/
