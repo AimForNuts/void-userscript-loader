@@ -1107,14 +1107,16 @@
         <div class="vim-header">
           <span class="vim-title">${escapeHtml(icon)} ${escapeHtml(title)}</span>
           <div class="vim-actions">
-            <button type="button" class="vim-btn" data-action="hide-panel">✕</button>
+            <button type="button" class="vim-btn" data-action="hide">✕</button>
           </div>
         </div>
         <div class="vim-body">${bodyHtml || ""}</div>
         <div class="vim-footer">${escapeHtml(footer || "")}</div>
       `;
 
-      panel.querySelector('[data-action="hide-panel"]').addEventListener("click", () => {
+      panel.querySelector('[data-action="hide"]').addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         this.hidePanel(app, id);
       });
 
@@ -1123,6 +1125,8 @@
 
       makeDraggable(panel, id, app);
       makeResizable(panel, id, app);
+      this.applyPanel(app, id);
+      return panel;
     },
 
     // createBuiltinPanel — used for built-in panels (e.g. the manager UI).
