@@ -606,4 +606,104 @@
         },
     };
 
+  // ─── DOM HELPER ─────────────────────────────────────────────────────────────
+  // Shared utilities passed to every module via appContext.dom.*
+  const DomHelper = {
+
+    sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    },
+
+    waitForSelector(selector, { timeout = 10000, root = document } = {}) {
+      return new Promise((resolve, reject) => {
+        const existing = root.querySelector(selector);
+        if (existing) return resolve(existing);
+
+        const timer = setTimeout(() => {
+          obs.disconnect();
+          reject(new Error(`waitForSelector timeout: "${selector}"`));
+        }, timeout);
+
+        const obs = new MutationObserver(() => {
+          const el = root.querySelector(selector);
+          if (el) { clearTimeout(timer); obs.disconnect(); resolve(el); }
+        });
+
+        const observeTarget = root.nodeType === Node.DOCUMENT_NODE
+          ? root.documentElement
+          : root;
+        obs.observe(observeTarget, { childList: true, subtree: true });
+      });
+    },
+
+    async waitForStableElement(selector, {
+      stabilityMs = 300,
+      timeout = 10000,
+      root = document,
+    } = {}) {
+      const deadline = Date.now() + timeout;
+      let lastHtml = null;
+      let stableFor = 0;
+
+      while (Date.now() < deadline) {
+        const el = root.querySelector(selector);
+        const html = el ? el.innerHTML : '__absent__';
+
+        if (html === lastHtml) {
+          stableFor += 50;
+          if (stableFor >= stabilityMs && el) return el;
+        } else {
+          stableFor = 0;
+          lastHtml = html;
+        }
+
+        await this.sleep(50);
+      }
+
+      throw new Error(`waitForStableElement timeout: "${selector}"`);
+    },
+
+    clickByText(selector, text, { root = document } = {}) {
+      const el = [...root.querySelectorAll(selector)]
+        .find(e => e.textContent.trim() === text);
+      if (!el) throw new Error(`clickByText: no "${selector}" with text "${text}"`);
+      el.click();
+      return el;
+    },
+
+    clickButtonByText(text, { root = document } = {}) {
+      return this.clickByText('button', text, { root });
+    },
+
+    setNativeInputValue(input, value) {
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      if (descriptor?.set) {
+        descriptor.set.call(input, value);
+      } else {
+        input.value = value;
+      }
+      input.dispatchEvent(new Event('input',  { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    },
+  };
+
+  // ─── API HELPER ─────────────────────────────────────────────────────────────
+  // Thin fetch wrapper. Uses browser's own session cookies — no hardcoded tokens.
+  // Pass paths relative to /api, e.g. '/inventory/123/salvage'.
+  const ApiHelper = {
+    async fetch(path, options = {}) {
+      const url = path.startsWith('http') ? path : `/api${path}`;
+      const res = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...options.headers },
+        ...options,
+      });
+      if (!res.ok) {
+        throw new Error(`API ${options.method || 'GET'} ${path} → ${res.status}`);
+      }
+      const ct = res.headers.get('content-type') || '';
+      return ct.includes('application/json') ? res.json() : res.text();
+    },
+  };
+
 })();
