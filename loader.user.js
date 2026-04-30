@@ -75,19 +75,28 @@
         try { localStorage.setItem(pfx + key, JSON.stringify(value)); }
         catch (err) { logger.warn(`storage.set failed [${moduleId}.${key}]`, err.message); }
       },
-      remove(key) { localStorage.removeItem(pfx + key); },
+      remove(key) {
+        try { localStorage.removeItem(pfx + key); } catch {}
+      },
       clear() {
-        Object.keys(localStorage)
-          .filter(k => k.startsWith(pfx))
-          .forEach(k => localStorage.removeItem(k));
+        try {
+          Object.keys(localStorage)
+            .filter(k => k.startsWith(pfx))
+            .forEach(k => localStorage.removeItem(k));
+        } catch {}
       },
     };
   }
 
   // ─── GENERAL STORAGE HELPERS ────────────────────────────────────────────────
-  function clone(v) { return JSON.parse(JSON.stringify(v)); }
+  function clone(v) {
+    try { return JSON.parse(JSON.stringify(v)); }
+    catch { return v; }
+  }
 
+  // Merges incoming into base in-place and returns base.
   function deepMerge(base, incoming) {
+    if (!base || typeof base !== 'object') return base;
     if (!incoming || typeof incoming !== 'object') return base;
     for (const [k, v] of Object.entries(incoming)) {
       if (v && typeof v === 'object' && !Array.isArray(v) &&
@@ -105,7 +114,8 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   // Panel settings (position/size/open state) stored separately from module data.
@@ -118,7 +128,7 @@
     },
     save(settings) {
       try { localStorage.setItem(CONFIG.cache.panels, JSON.stringify(settings)); }
-      catch {}
+      catch (err) { logger.warn('PanelStorage.save failed:', err.message); }
     },
   };
 
