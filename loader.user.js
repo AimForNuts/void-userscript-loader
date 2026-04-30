@@ -1324,4 +1324,260 @@
     }[char]));
   }
 
+  // ─── MODULE REGISTRY ────────────────────────────────────────────────────────
+  // Tracks load state of every module the loader attempted to initialize.
+  const ModuleRegistry = {
+    _records: new Map(), // id → { module, entry, status, error, loadedAt }
+
+    register(id, module, entry, status, error = null) {
+      this._records.set(id, { module, entry, status, error, loadedAt: Date.now() });
+    },
+
+    get(id)    { return this._records.get(id); },
+    getAll()   { return [...this._records.values()]; },
+    has(id)    { return this._records.has(id); },
+    delete(id) { this._records.delete(id); },
+  };
+
+  // ─── MODULE LOADER ──────────────────────────────────────────────────────────
+  const ModuleLoader = {
+    _offline: false,
+
+    async start(app) {
+      logger.log('ModuleLoader starting…');
+
+      // 1 — Fetch manifest (fall back to cache if network fails)
+      let manifest;
+      try {
+        manifest = await this._fetchManifest();
+        this._offline = false;
+        logger.log('Manifest fetched:', manifest.version);
+        app.events.emit('loader:manifest', { manifest, offline: false });
+      } catch (err) {
+        logger.warn('Manifest fetch failed, checking cache:', err.message);
+        manifest = this._loadCachedManifest();
+        if (!manifest) {
+          logger.error('No cached manifest — cannot load modules.');
+          app.events.emit('loader:error', { type: 'manifest', message: err.message });
+          return;
+        }
+        this._offline = true;
+        logger.log('Using cached manifest (offline):', manifest.version);
+        app.events.emit('loader:manifest', { manifest, offline: true });
+      }
+
+      // 2 — Resolve per-module enabled overrides set by the user in-game
+      const userSettings = this._loadUserSettings();
+
+      // 3 — Load modules; two passes for dependency resolution
+      const results = { loaded: [], failed: [], skipped: [] };
+      let queue = [...manifest.modules];
+
+      for (let pass = 0; pass < 2 && queue.length > 0; pass++) {
+        const deferred = [];
+
+        for (const entry of queue) {
+          // User override takes precedence over manifest enabled flag
+          const enabled = entry.id in userSettings
+            ? userSettings[entry.id]
+            : entry.enabled;
+
+          if (!enabled) {
+            logger.log('Module skipped (disabled):', entry.id);
+            results.skipped.push(entry.id);
+            app.events.emit('loader:module:skipped', { id: entry.id });
+            continue;
+          }
+
+          // 'core' is always satisfied (embedded in loader). Check others.
+          const unmet = (entry.dependencies || [])
+            .filter(d => d !== 'core' && !results.loaded.includes(d));
+
+          if (unmet.length > 0 && pass === 0) {
+            deferred.push(entry);
+            continue;
+          }
+
+          if (unmet.length > 0) {
+            const msg = `Unmet dependencies: ${unmet.join(', ')}`;
+            logger.warn(`Module skipped (${entry.id}):`, msg);
+            results.failed.push({ id: entry.id, error: msg });
+            app.events.emit('loader:module:failed', { id: entry.id, error: msg });
+            continue;
+          }
+
+          const result = await this._loadOne(app, entry);
+          if (result.ok) {
+            results.loaded.push(entry.id);
+            app.events.emit('loader:module:loaded', { id: entry.id, version: entry.version });
+          } else {
+            results.failed.push({ id: entry.id, error: result.error });
+            app.events.emit('loader:module:failed', { id: entry.id, error: result.error });
+          }
+        }
+
+        queue = deferred;
+      }
+
+      logger.log(
+        `Load complete — loaded: ${results.loaded.length},`,
+        `failed: ${results.failed.length},`,
+        `skipped: ${results.skipped.length}`
+      );
+      app.events.emit('loader:complete', results);
+    },
+
+    // reload — destroy existing instance, clear cache entry, re-fetch, re-init
+    async reload(app, id) {
+      const record = ModuleRegistry.get(id);
+      if (record?.module) {
+        try { record.module.destroy?.(); } catch {}
+      }
+      ModuleRegistry.delete(id);
+      // Also remove from app.modules so tray re-renders correctly
+      app.modules.delete(id);
+
+      const manifest = this._loadCachedManifest();
+      const entry = manifest?.modules?.find(m => m.id === id);
+      if (!entry) {
+        logger.warn(`Cannot reload "${id}" — not found in cached manifest`);
+        return { ok: false, error: 'Not in manifest' };
+      }
+
+      // Clear source cache so next _loadOne fetches fresh from network
+      localStorage.removeItem(CONFIG.cache.moduleKey(id, entry.version));
+
+      const result = await this._loadOne(app, entry);
+      app.events.emit('loader:module:reloaded', { id, ok: result.ok, error: result.error });
+      return result;
+    },
+
+    async _fetchManifest() {
+      // Use cached version as the cache-buster so GitHub CDN serves fresh content
+      // when the version changes, but does not hammer the API on every page load.
+      const cached = this._loadCachedManifest();
+      const buster = cached?.version
+        ? encodeURIComponent(cached.version)
+        : String(Date.now());
+      const res = await fetch(`${CONFIG.manifestUrl}?v=${buster}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const manifest = await res.json();
+      try { localStorage.setItem(CONFIG.cache.manifest, JSON.stringify(manifest)); } catch {}
+      return manifest;
+    },
+
+    _loadCachedManifest() {
+      try {
+        const raw = localStorage.getItem(CONFIG.cache.manifest);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    },
+
+    _loadUserSettings() {
+      try {
+        const raw = localStorage.getItem(CONFIG.cache.settings);
+        return raw ? JSON.parse(raw) : {};
+      } catch { return {}; }
+    },
+
+    saveUserSetting(id, enabled) {
+      const s = this._loadUserSettings();
+      s[id] = enabled;
+      try { localStorage.setItem(CONFIG.cache.settings, JSON.stringify(s)); } catch {}
+    },
+
+    async _loadOne(app, entry) {
+      const cacheKey = CONFIG.cache.moduleKey(entry.id, entry.version);
+      let source;
+
+      // Try network first
+      try {
+        const url = `${entry.url}?v=${encodeURIComponent(entry.version)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        source = await res.text();
+        try { localStorage.setItem(cacheKey, source); } catch {}
+        logger.log(`Module fetched: ${entry.id}@${entry.version}`);
+        this._pruneOldCache(entry.id, entry.version);
+      } catch (fetchErr) {
+        logger.warn(`Module fetch failed (${entry.id}):`, fetchErr.message, '— trying cache');
+        source = localStorage.getItem(cacheKey);
+        if (!source) {
+          return { ok: false, error: `Fetch failed, no cache: ${fetchErr.message}` };
+        }
+        logger.log(`Module loaded from cache: ${entry.id}@${entry.version}`);
+      }
+
+      // Evaluate
+      try {
+        const fn = new Function(source); // eslint-disable-line no-new-func
+        fn();
+      } catch (evalErr) {
+        return { ok: false, error: `Eval failed: ${evalErr.message}` };
+      }
+
+      // Validate
+      const mod = window.VoidIdleModules?.[entry.id];
+      if (!mod) {
+        return {
+          ok: false,
+          error: `window.VoidIdleModules['${entry.id}'] was not assigned after eval`,
+        };
+      }
+      if (typeof mod.init !== 'function') {
+        return { ok: false, error: `Module '${entry.id}' is missing an init() function` };
+      }
+
+      // Init
+      const ctx = this._buildContext(app, entry);
+      try {
+        await mod.init(ctx);
+        ModuleRegistry.register(entry.id, mod, entry, 'loaded');
+        // Add to app.modules so WindowManager.renderTray can build tray buttons
+        app.modules.set(entry.id, mod);
+        logger.log(`Module initialized: ${entry.id}`);
+        return { ok: true };
+      } catch (initErr) {
+        try { mod.destroy?.(); } catch {}
+        ModuleRegistry.register(entry.id, mod, entry, 'failed', initErr.message);
+        return { ok: false, error: `Init failed: ${initErr.message}` };
+      }
+    },
+
+    _buildContext(app, entry) {
+      return {
+        events:  app.events,
+        socket:  app.socket,
+        relay:   app.relay,
+        storage: createModuleStorage(entry.id),
+        logger:  createLogger(entry.id),
+        api:     ApiHelper,
+        dom:     DomHelper,
+        ui: {
+          registerPanel: (config) =>
+            WindowManager.registerModulePanel(app, entry.id, config),
+          getPanel: (id) =>
+            document.getElementById(`vim-panel-${id || entry.id}`),
+        },
+        meta: {
+          id:          entry.id,
+          name:        entry.name,
+          version:     entry.version,
+          description: entry.description || '',
+          icon:        entry.icon || '🔧',
+        },
+      };
+    },
+
+    _pruneOldCache(id, currentVersion) {
+      const prefix = `voididle.loader.module.${id}@`;
+      const current = CONFIG.cache.moduleKey(id, currentVersion);
+      const old = Object.keys(localStorage)
+        .filter(k => k.startsWith(prefix) && k !== current)
+        .sort(); // lexicographic sort works for date-version strings
+      // Delete all but the most recent previous version (keep 1 rollback slot)
+      old.slice(0, -1).forEach(k => localStorage.removeItem(k));
+    },
+  };
+
 })();
