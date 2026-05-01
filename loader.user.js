@@ -1216,7 +1216,7 @@
       app.settings.panels = {};
     }
 
-    const defaults = DEFAULT_SETTINGS.panels?.[id] || {
+    const defaults = {
       enabled: false,
       open: false,
       width: 520,
