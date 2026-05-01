@@ -2,10 +2,9 @@
   'use strict';
 
   function createPartyPlannerModule(definition) {
+    let appRef;
 
     const LS = {
-      pos: 'voididle.partyPlannerRunes.pos.v1',
-      collapsed: 'voididle.partyPlannerRunes.collapsed.v1',
       tab: 'voididle.partyPlannerRunes.tab.v1',
       inventory: 'voididle.partyPlannerRunes.inventory.v1',
       scannedAt: 'voididle.partyPlannerRunes.scannedAt.v1',
@@ -18,7 +17,7 @@
       runeQty: 'voididle.partyPlannerRunes.runeQty.v1',
       debugCraftingResponse: 'voididle.partyPlannerRunes.debugCraftingResponse.v1',
       spiritEssenceDebug: 'voididle.partyPlannerRunes.spiritEssenceDebug.v1',
-      cardCollapsed: 'voididle.partyPlannerRunes.cardCollapsed.v1'
+      cardCollapsed: 'voididle.partyPlannerRunes.cardCollapsed.v1',
     };
 
     const TOOL_SLOTS = {
@@ -29,7 +28,7 @@
       craft_flask: 'Flask',
       craft_tome: 'Tome',
       gather_gloves: 'Gloves',
-      gather_pack: 'Pack'
+      gather_pack: 'Pack',
     };
 
     const MATERIAL_ALIASES = {
@@ -39,7 +38,7 @@
       'Copper Ingot': 'copper_ingot', 'Iron Ingot': 'iron_ingot', 'Mithril Ingot': 'mithril_ingot', 'Adamantite Ingot': 'adamantite_ingot', 'Starmetal Ingot': 'starmetal_ingot', 'Celestial Ingot': 'celestial_ingot',
       'Spirit Herb': 'spirit_herb', 'Jade Lotus': 'jade_lotus', 'Phoenix Bloom': 'phoenix_bloom', 'Moonpetal': 'moonpetal', 'Voidbloom': 'voidbloom', 'Dragon Root': 'dragon_root',
       'Herb Extract': 'herb_extract', 'Lotus Extract': 'lotus_extract', 'Phoenix Extract': 'phoenix_extract', 'Moonpetal Extract': 'moonpetal_extract', 'Voidbloom Extract': 'voidbloom_extract', 'Dragon Extract': 'dragon_extract',
-      'Beast Hide': 'beast_hide', 'Monster Bone': 'monster_bone', 'Spirit Essence': 'spirit_essence', 'Storm Essence': 'storm_essence', 'Elemental Core': 'elemental_core', 'Shadow Essence': 'shadow_essence', 'Dragon Scale': 'dragon_scale', 'Demon Fang': 'demon_fang', 'Void Essence': 'void_essence', 'Celestial Essence': 'celestial_essence', 'Dao Fragment': 'dao_fragment', 'Dao Crystal': 'dao_crystal'
+      'Beast Hide': 'beast_hide', 'Monster Bone': 'monster_bone', 'Spirit Essence': 'spirit_essence', 'Storm Essence': 'storm_essence', 'Elemental Core': 'elemental_core', 'Shadow Essence': 'shadow_essence', 'Dragon Scale': 'dragon_scale', 'Demon Fang': 'demon_fang', 'Void Essence': 'void_essence', 'Celestial Essence': 'celestial_essence', 'Dao Fragment': 'dao_fragment', 'Dao Crystal': 'dao_crystal',
     };
 
     const TOOL_ID_NAMES = {
@@ -50,7 +49,7 @@
       copper_flask: "Copper Alchemist's Flask", iron_flask: "Iron Alchemist's Flask", mithril_flask: "Mithril Alchemist's Flask", adamantite_flask: "Adamantite Alchemist's Flask", starmetal_flask: "Starmetal Alchemist's Flask", celestial_flask: "Celestial Alchemist's Flask",
       copper_tome: "Copper-Bound Enchanter's Tome", iron_tome: "Iron-Bound Enchanter's Tome", mithril_tome: "Mithril-Bound Enchanter's Tome", adamantite_tome: "Adamantite-Bound Enchanter's Tome", starmetal_tome: "Starmetal-Bound Enchanter's Tome", celestial_tome: "Celestial-Bound Enchanter's Tome",
       gather_gloves_t1: 'Copper Gathering Gloves', gather_gloves_t2: 'Iron Gathering Gloves', gather_gloves_t3: 'Mithril Gathering Gloves', gather_gloves_t4: 'Adamantite Gathering Gloves', gather_gloves_t5: 'Starmetal Gathering Gloves', gather_gloves_t6: 'Celestial Gathering Gloves',
-      gather_pack_t1: 'Copper Gathering Pack', gather_pack_t2: 'Iron Gathering Pack', gather_pack_t3: 'Mithril Gathering Pack', gather_pack_t4: 'Adamantite Gathering Pack', gather_pack_t5: 'Starmetal Gathering Pack', gather_pack_t6: 'Celestial Gathering Pack'
+      gather_pack_t1: 'Copper Gathering Pack', gather_pack_t2: 'Iron Gathering Pack', gather_pack_t3: 'Mithril Gathering Pack', gather_pack_t4: 'Adamantite Gathering Pack', gather_pack_t5: 'Starmetal Gathering Pack', gather_pack_t6: 'Celestial Gathering Pack',
     };
 
     Object.keys(TOOL_ID_NAMES).forEach(id => { MATERIAL_ALIASES[TOOL_ID_NAMES[id]] = id; });
@@ -63,7 +62,7 @@
       targetTier: Number(localStorage.getItem(LS.targetTier) || 2),
       runeTier: Number(localStorage.getItem(LS.runeTier) || 1),
       runeQty: loadJSON(LS.runeQty, {}),
-      msg: ''
+      msg: '',
     };
 
     function loadJSON(key, fallback) { try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; } }
@@ -108,18 +107,11 @@
       const res = await fetch(url, { method: 'GET', credentials: 'include', cache: 'no-store', headers });
       if (!res.ok) throw new Error('HTTP ' + res.status + ' for ' + url);
       const data = await res.json();
-
       if (String(url).includes('/api/crafting')) {
-        window.__vilLastCraftingRequest = {
-          url,
-          status: res.status,
-          capturedAt: new Date().toISOString(),
-          response: data
-        };
+        window.__vilLastCraftingRequest = { url, status: res.status, capturedAt: new Date().toISOString(), response: data };
         localStorage.setItem(LS.debugCraftingResponse, JSON.stringify(window.__vilLastCraftingRequest));
         console.log('VoidIdle /api/crafting sniffed response:', window.__vilLastCraftingRequest);
       }
-
       return data;
     }
 
@@ -138,7 +130,7 @@
         const isBaseRefine = String(r.id || '').startsWith('refine_');
         const currentIsBaseRefine = String(current?.id || '').startsWith('refine_');
         if (!current) { out[resultId] = r; return; }
-        if (isBaseRefine && !currentIsBaseRefine) { out[resultId] = r; return; }
+        if (isBaseRefine && !currentIsBaseRefine) { out[resultId] = r; }
       });
       return out;
     }
@@ -154,7 +146,8 @@
     function cardKeyFor(title, idx) { return state.tab + ':' + idx + ':' + title; }
 
     function makeCardsCollapsible(panel) {
-      const cards = Array.from(panel.querySelectorAll('.vilBody > .vilCard'));
+      const bodyEl = panel.querySelector('.vim-body') || panel;
+      const cards = Array.from(bodyEl.querySelectorAll(':scope > .vilCard'));
       const collapsedMap = getCardCollapsedMap();
 
       cards.forEach((card, idx) => {
@@ -245,7 +238,7 @@
         processedId: id, processedName: displayName(id), qty,
         refineRecipeUsed: refineMap[id] ? { id: refineMap[id].id, name: refineMap[id].name, profession: refineMap[id].profession, result: refineMap[id].result, materials: refineMap[id].materials } : null,
         expandedRaw: expandToRaw(id, qty, refineMap),
-        spiritEssenceInExpandedRaw: Number(expandToRaw(id, qty, refineMap).spirit_essence || 0)
+        spiritEssenceInExpandedRaw: Number(expandToRaw(id, qty, refineMap).spirit_essence || 0),
       }));
       const report = {
         capturedAt: new Date().toISOString(),
@@ -256,7 +249,7 @@
         allRecipesMentioningSpiritEssence: allRecipesMentioningSpiritEssence.map(r => ({ id: r.id, name: r.name, profession: r.profession, tier: r.tier, result: r.result, materials: r.materials })),
         rawExpansionByProcessedMaterial,
         selectedRunePlan: plan,
-        lastSniffedCraftingRequest: window.__vilLastCraftingRequest || loadJSON(LS.debugCraftingResponse, null)
+        lastSniffedCraftingRequest: window.__vilLastCraftingRequest || loadJSON(LS.debugCraftingResponse, null),
       };
       window.__vilSpiritEssenceDebug = report;
       localStorage.setItem(LS.spiritEssenceDebug, JSON.stringify(report));
@@ -271,35 +264,32 @@
 
     function installCSS() {
       if (document.getElementById('vilCss')) return;
-      const css = '#vilPanel{position:fixed;right:14px;bottom:14px;width:800px;max-width:calc(100vw - 20px);max-height:82vh;z-index:2147483647;background:#07101f;color:#eaf4ff;border:1px solid #2b4365;border-radius:14px;box-shadow:0 12px 45px rgba(0,0,0,.65);font:12px/1.35 system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}#vilPanel *{box-sizing:border-box}#vilHead{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#0d1a2f;cursor:move;user-select:none;touch-action:none}.vilMove{background:#07405d;border:1px solid #59d4ff;border-radius:8px;padding:2px 8px;font-weight:900}.vilTitle{font-weight:900;font-size:14px;flex:1}.vilSub{font-size:10px;color:#aab8ce;margin-top:2px}.vilBtn{background:#111c31;border:1px solid #35506f;color:#eaf4ff;border-radius:8px;padding:5px 9px;font-weight:800;cursor:pointer}.vilBtn:hover{border-color:#65d7ff}.vilHot{background:#08314f;border-color:#2ab7f5}.vilBad{border-color:#f87171;color:#ffd1d1}.vilInput{background:#050b17;color:#f4f8ff;border:1px solid #2b405e;border-radius:8px;padding:6px;min-width:64px}.vilQty{width:70px}.vilTabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:8px;border-top:1px solid rgba(255,255,255,.06)}.vilTab{background:#101a2d;border:1px solid #304762;color:#dcecff;border-radius:8px;padding:7px;font-weight:900;cursor:pointer}.vilTab.active{background:#063653;border-color:#47cfff;color:#fff}.vilBody{padding:10px;overflow:auto;max-height:calc(82vh - 92px)}.vilCard{background:#0b1528;border:1px solid #223653;border-radius:11px;padding:10px;margin-bottom:9px}.vilRow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.vilTiny{font-size:10px;color:#aab8ce}.vilMuted{color:#92a3bd}.vilErr{color:#ffd1d1}.vilGood{color:#7dffb2}.vilTable{width:100%;border-collapse:collapse}.vilTable th,.vilTable td{border-bottom:1px solid rgba(255,255,255,.08);padding:6px;text-align:left;vertical-align:top}.vilTable th{font-size:10px;text-transform:uppercase;color:#a9bddb}.vilHidden{display:none!important}.vilScroll{max-height:320px;overflow:auto;border:1px solid rgba(255,255,255,.06);border-radius:8px;margin-top:8px}.vilCollapseHead{display:flex;align-items:center;gap:8px;font-weight:900}.vilCollapseHead span{flex:1}.vilCollapseBody{margin-top:8px}.vilMiniBtn{width:24px;height:24px;border-radius:7px;border:1px solid #35506f;background:#111c31;color:#eaf4ff;font-weight:900;cursor:pointer;line-height:1}';
+      const css = '.vilTabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:10px}.vilTab{background:#101a2d;border:1px solid #304762;color:#dcecff;border-radius:8px;padding:7px;font-weight:900;cursor:pointer}.vilTab.active{background:#063653;border-color:#47cfff;color:#fff}.vilCard{background:#0b1528;border:1px solid #223653;border-radius:11px;padding:10px;margin-bottom:9px}.vilRow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.vilTiny{font-size:10px;color:#aab8ce}.vilMuted{color:#92a3bd}.vilErr{color:#ffd1d1}.vilGood{color:#7dffb2}.vilBtn{background:#111c31;border:1px solid #35506f;color:#eaf4ff;border-radius:8px;padding:5px 9px;font-weight:800;cursor:pointer}.vilBtn:hover{border-color:#65d7ff}.vilHot{background:#08314f;border-color:#2ab7f5}.vilBad{border-color:#f87171;color:#ffd1d1}.vilInput{background:#050b17;color:#f4f8ff;border:1px solid #2b405e;border-radius:8px;padding:6px;min-width:64px}.vilQty{width:70px}.vilTable{width:100%;border-collapse:collapse}.vilTable th,.vilTable td{border-bottom:1px solid rgba(255,255,255,.08);padding:6px;text-align:left;vertical-align:top}.vilTable th{font-size:10px;text-transform:uppercase;color:#a9bddb}.vilHidden{display:none!important}.vilScroll{max-height:320px;overflow:auto;border:1px solid rgba(255,255,255,.06);border-radius:8px;margin-top:8px}.vilCollapseHead{display:flex;align-items:center;gap:8px;font-weight:900}.vilCollapseHead span{flex:1}.vilCollapseBody{margin-top:8px}.vilMiniBtn{width:24px;height:24px;border-radius:7px;border:1px solid #35506f;background:#111c31;color:#eaf4ff;font-weight:900;cursor:pointer;line-height:1}';
       const style = document.createElement('style'); style.id = 'vilCss'; style.textContent = css; document.head.appendChild(style);
     }
 
-    function makePanel() { if (document.getElementById('vilPanel')) return; const panel = document.createElement('div'); panel.id = 'vilPanel'; const pos = loadJSON(LS.pos, null); if (pos) { panel.style.left = pos.left + 'px'; panel.style.top = pos.top + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto'; } document.body.appendChild(panel); installDrag(panel); render(); }
-    function installDrag(panel) { let dragging = false, sx = 0, sy = 0, sl = 0, st = 0; const clamp = (v, min, max) => Math.max(min, Math.min(max, v)); panel.addEventListener('pointerdown', e => { const head = e.target.closest('#vilHead'); if (!head || e.target.closest('button,input,select')) return; dragging = true; sx = e.clientX; sy = e.clientY; const r = panel.getBoundingClientRect(); sl = r.left; st = r.top; panel.style.left = sl + 'px'; panel.style.top = st + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto'; panel.setPointerCapture?.(e.pointerId); e.preventDefault(); }, true); window.addEventListener('pointermove', e => { if (!dragging) return; panel.style.left = clamp(sl + e.clientX - sx, 0, window.innerWidth - 90) + 'px'; panel.style.top = clamp(st + e.clientY - sy, 0, window.innerHeight - 45) + 'px'; }, true); window.addEventListener('pointerup', () => { if (!dragging) return; dragging = false; const r = panel.getBoundingClientRect(); saveJSON(LS.pos, { left: Math.round(r.left), top: Math.round(r.top) }); }, true); }
-
-    function scanInventory() { const out = {}; const rows = document.querySelectorAll('.inv-resources .res-row, .res-row.sellable'); for (const row of rows) { const name = text(row.querySelector('.res-name')); const qtyEl = row.querySelector('.res-qty'); const qty = num(qtyEl?.getAttribute('title') || text(qtyEl)); const id = materialIdFromName(name); if (id && Number.isFinite(qty)) out[id] = qty; } state.inventory = out; saveJSON(LS.inventory, out); localStorage.setItem(LS.scannedAt, new Date().toISOString()); state.msg = 'Scanned ' + Object.keys(out).length + ' inventory items.'; render(); }
+    function scanInventory() { const out = {}; const rows = document.querySelectorAll('.inv-resources .res-row, .res-row.sellable'); for (const row of rows) { const name = text(row.querySelector('.res-name')); const qtyEl = row.querySelector('.res-qty'); const qty = num(qtyEl?.getAttribute('title') || text(qtyEl)); const id = materialIdFromName(name); if (id && Number.isFinite(qty)) out[id] = qty; } state.inventory = out; saveJSON(LS.inventory, out); localStorage.setItem(LS.scannedAt, new Date().toISOString()); state.msg = 'Scanned ' + Object.keys(out).length + ' inventory items.'; renderIntoPanel(); }
 
     async function loadCrafting() {
       try {
-        state.msg = 'Loading crafting data...'; render();
+        state.msg = 'Loading crafting data...'; renderIntoPanel();
         state.crafting = await apiGet('/api/crafting');
         window.__vilLastCraftingResponse = state.crafting;
         localStorage.setItem(LS.debugCraftingResponse, JSON.stringify({ url: '/api/crafting', capturedAt: new Date().toISOString(), response: state.crafting }));
         saveJSON(LS.crafting, state.crafting);
         localStorage.setItem(LS.craftingAt, new Date().toISOString());
         state.msg = 'Crafting cached. Tools: ' + getToolRecipes().length + ', runes: ' + getRuneRecipes().length + '. Sniffer saved /api/crafting.';
-        render();
-      } catch (e) { state.msg = 'Crafting load failed: ' + (e.message || e); render(); }
+        renderIntoPanel();
+      } catch (e) { state.msg = 'Crafting load failed: ' + (e.message || e); renderIntoPanel(); }
     }
 
-    async function loadPartyTools() { try { state.msg = 'Loading party...'; render(); const party = await apiGet('/api/party'); const members = party?.members || []; state.msg = 'Inspecting ' + members.length + ' party members...'; render(); const records = await Promise.all(members.map(async m => { try { const data = await apiGet('/api/player/' + encodeURIComponent(m.player_id) + '/inspect'); return recordFromInspect(data, m); } catch (e) { return { name: m.username || m.player_id || 'Unknown', playerId: m.player_id || null, savedAt: new Date().toISOString(), error: e.message || String(e), tools: emptyTools() }; } })); const next = {}; records.forEach(r => { next[r.name] = r; }); state.partyTools = next; saveJSON(LS.partyTools, state.partyTools); localStorage.setItem(LS.partyToolsAt, new Date().toISOString()); state.msg = 'Loaded tools for ' + records.length + ' party members.'; render(); } catch (e) { state.msg = 'Party tools load failed: ' + (e.message || e); render(); } }
-    async function copyText(txt, okMsg) { try { await navigator.clipboard.writeText(txt); } catch { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } state.msg = okMsg; render(); }
-    function clearInventory() { state.inventory = {}; saveJSON(LS.inventory, {}); localStorage.removeItem(LS.scannedAt); state.msg = 'Inventory cleared.'; render(); }
-    function clearTools() { state.partyTools = {}; saveJSON(LS.partyTools, {}); localStorage.removeItem(LS.partyToolsAt); state.msg = 'Tools cleared.'; render(); }
-    function clearCrafting() { state.crafting = null; localStorage.removeItem(LS.crafting); localStorage.removeItem(LS.craftingAt); localStorage.removeItem(LS.debugCraftingResponse); localStorage.removeItem(LS.spiritEssenceDebug); state.msg = 'Crafting cache and debug cache cleared.'; render(); }
-    function clearRuneSelection() { state.runeQty = {}; saveJSON(LS.runeQty, {}); state.msg = 'Rune selection cleared.'; render(); }
-    function removeToolRecord(name) { delete state.partyTools[name]; saveJSON(LS.partyTools, state.partyTools); state.msg = 'Removed ' + name + '.'; render(); }
+    async function loadPartyTools() { try { state.msg = 'Loading party...'; renderIntoPanel(); const party = await apiGet('/api/party'); const members = party?.members || []; state.msg = 'Inspecting ' + members.length + ' party members...'; renderIntoPanel(); const records = await Promise.all(members.map(async m => { try { const data = await apiGet('/api/player/' + encodeURIComponent(m.player_id) + '/inspect'); return recordFromInspect(data, m); } catch (e) { return { name: m.username || m.player_id || 'Unknown', playerId: m.player_id || null, savedAt: new Date().toISOString(), error: e.message || String(e), tools: emptyTools() }; } })); const next = {}; records.forEach(r => { next[r.name] = r; }); state.partyTools = next; saveJSON(LS.partyTools, state.partyTools); localStorage.setItem(LS.partyToolsAt, new Date().toISOString()); state.msg = 'Loaded tools for ' + records.length + ' party members.'; renderIntoPanel(); } catch (e) { state.msg = 'Party tools load failed: ' + (e.message || e); renderIntoPanel(); } }
+    async function copyText(txt, okMsg) { try { await navigator.clipboard.writeText(txt); } catch { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } state.msg = okMsg; renderIntoPanel(); }
+    function clearInventory() { state.inventory = {}; saveJSON(LS.inventory, {}); localStorage.removeItem(LS.scannedAt); state.msg = 'Inventory cleared.'; renderIntoPanel(); }
+    function clearTools() { state.partyTools = {}; saveJSON(LS.partyTools, {}); localStorage.removeItem(LS.partyToolsAt); state.msg = 'Tools cleared.'; renderIntoPanel(); }
+    function clearCrafting() { state.crafting = null; localStorage.removeItem(LS.crafting); localStorage.removeItem(LS.craftingAt); localStorage.removeItem(LS.debugCraftingResponse); localStorage.removeItem(LS.spiritEssenceDebug); state.msg = 'Crafting cache and debug cache cleared.'; renderIntoPanel(); }
+    function clearRuneSelection() { state.runeQty = {}; saveJSON(LS.runeQty, {}); state.msg = 'Rune selection cleared.'; renderIntoPanel(); }
+    function removeToolRecord(name) { delete state.partyTools[name]; saveJSON(LS.partyTools, state.partyTools); state.msg = 'Removed ' + name + '.'; renderIntoPanel(); }
 
     function materialRows(map, showHave) { const keys = Object.keys(map || {}).sort((a, b) => displayName(a).localeCompare(displayName(b))); if (!keys.length) return '<tr><td colspan="4" class="vilMuted">None</td></tr>'; return keys.map(id => { const have = Number(state.inventory?.[id] || 0); const need = Number(map[id] || 0); const missing = Math.max(0, need - have); return '<tr><td>' + esc(displayName(id)) + '<div class="vilTiny">' + esc(id) + '</div></td><td>' + fmt(need) + '</td>' + (showHave ? '<td>' + fmt(have) + '</td><td>' + (missing ? fmt(missing) : '<span class="vilGood">0</span>') + '</td>' : '') + '</tr>'; }).join(''); }
     function tabButton(id, label) { return '<button class="vilTab ' + (state.tab === id ? 'active' : '') + '" data-tab="' + id + '">' + esc(label) + '</button>'; }
@@ -317,23 +307,42 @@
         const result = r.result || {};
         return '<tr><td><input class="vilInput vilQty" type="number" min="0" step="1" data-rune-qty="' + esc(r.id) + '" value="' + esc(qty) + '"></td><td>' + esc(r.name) + '<div class="vilTiny">' + esc(r.id) + ' · ' + esc(r.profession || '') + '</div></td><td>' + esc(result.category || '') + '</td><td>' + esc(result.stat || '') + '</td><td>' + esc(mats) + '</td></tr>';
       }).join('') || '<tr><td colspan="5" class="vilMuted">Load crafting data first, or no runes found for this tier.</td></tr>';
-      return '<div class="vilCard"><div class="vilRow"><button class="vilBtn vilHot" data-act="loadCrafting">Load / Refresh Crafting Data</button><label>Rune tier <select class="vilInput" id="vilRuneTier"><option value="1">T1</option><option value="2">T2</option><option value="3">T3</option><option value="4">T4</option><option value="5">T5</option><option value="6">T6</option></select></label><button class="vilBtn" data-act="copyRunePlan">Copy Rune Plan</button><button class="vilBtn" data-act="copySpiritDebug">Copy Spirit Debug</button><button class="vilBtn" data-act="copyCraftingSniff">Copy Crafting Sniff</button><button class="vilBtn vilBad" data-act="clearRuneSelection">Clear Selected Runes</button></div><div class="vilTiny" style="margin-top:6px">Enter how many of each rune you want. Raw equivalent now prefers normal refine_* recipes and avoids transmute recipes overwriting them. Debug buttons copy the exact cached /api/crafting response and the raw-expansion trace.</div></div><div class="vilCard"><b>Runes T' + esc(tier) + '</b><div class="vilTiny">Showing ' + runes.length + ' rune recipes. Cached at: ' + esc(localStorage.getItem(LS.craftingAt) || 'never') + '</div><div class="vilScroll"><table class="vilTable"><thead><tr><th>Qty</th><th>Rune</th><th>Gear</th><th>Stat</th><th>Cost each</th></tr></thead><tbody>' + rows + '</tbody></table></div></div><div class="vilCard"><b>Selected rune breakdown – processed</b><div class="vilScroll"><table class="vilTable"><thead><tr><th>Material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead><tbody>' + materialRows(plan.processed, true) + '</tbody></table></div></div><div class="vilCard"><b>Selected rune breakdown – raw equivalent</b><div class="vilScroll"><table class="vilTable"><thead><tr><th>Raw material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead><tbody>' + materialRows(plan.raw, true) + '</tbody></table></div></div>';
+      return '<div class="vilCard"><div class="vilRow"><button class="vilBtn vilHot" data-act="loadCrafting">Load / Refresh Crafting Data</button><label>Rune tier <select class="vilInput" id="vilRuneTier"><option value="1">T1</option><option value="2">T2</option><option value="3">T3</option><option value="4">T4</option><option value="5">T5</option><option value="6">T6</option></select></label><button class="vilBtn" data-act="copyRunePlan">Copy Rune Plan</button><button class="vilBtn" data-act="copySpiritDebug">Copy Spirit Debug</button><button class="vilBtn" data-act="copyCraftingSniff">Copy Crafting Sniff</button><button class="vilBtn vilBad" data-act="clearRuneSelection">Clear Selected Runes</button></div><div class="vilTiny" style="margin-top:6px">Enter how many of each rune you want. Raw equivalent prefers normal refine_* recipes and avoids transmute recipes overwriting them.</div></div><div class="vilCard"><b>Runes T' + esc(tier) + '</b><div class="vilTiny">Showing ' + runes.length + ' rune recipes. Cached at: ' + esc(localStorage.getItem(LS.craftingAt) || 'never') + '</div><div class="vilScroll"><table class="vilTable"><thead><tr><th>Qty</th><th>Rune</th><th>Gear</th><th>Stat</th><th>Cost each</th></tr></thead><tbody>' + rows + '</tbody></table></div></div><div class="vilCard"><b>Selected rune breakdown – processed</b><div class="vilScroll"><table class="vilTable"><thead><tr><th>Material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead><tbody>' + materialRows(plan.processed, true) + '</tbody></table></div></div><div class="vilCard"><b>Selected rune breakdown – raw equivalent</b><div class="vilScroll"><table class="vilTable"><thead><tr><th>Raw material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead><tbody>' + materialRows(plan.raw, true) + '</tbody></table></div></div>';
     }
 
     function plannerBody() { const plan = plannerAll(); const missingRaw = neededMinusInventory(plan.totalRaw); const missingProcessed = neededMinusInventory(plan.totalProcessed); const playerCards = plan.perPlayer.map(p => { const steps = p.steps.map(s => s.label + ' T' + s.toTier).join(', ') || 'Already at target'; return '<div class="vilCard"><b>' + esc(p.player) + '</b><div class="vilTiny">' + esc(steps) + (p.missingRecipes.length ? ' · Missing recipes: ' + esc(p.missingRecipes.join(', ')) : '') + '</div><table class="vilTable" style="margin-top:8px"><thead><tr><th>Processed needed</th><th>Qty</th></tr></thead><tbody>' + materialRows(p.processed, false) + '</tbody></table><table class="vilTable" style="margin-top:8px"><thead><tr><th>Raw equivalent</th><th>Qty</th></tr></thead><tbody>' + materialRows(p.raw, false) + '</tbody></table></div>'; }).join('') || '<div class="vilCard vilMuted">Load party tools first.</div>'; return '<div class="vilCard"><div class="vilRow"><button class="vilBtn vilHot" data-act="loadCrafting">Load / Refresh Crafting Data</button><button class="vilBtn vilHot" data-act="loadPartyTools">Load Party Tools</button><label>Desired tool tier <select class="vilInput" id="vilTargetTier"><option value="1">T1</option><option value="2">T2</option><option value="3">T3</option><option value="4">T4</option><option value="5">T5</option><option value="6">T6</option></select></label><button class="vilBtn" data-act="copyPlanner">Copy Planner</button></div><div class="vilTiny" style="margin-top:6px">Tool planner crafts each missing tier step and expands refined materials back to raw.</div></div><div class="vilCard"><b>Total processed materials</b><div class="vilScroll"><table class="vilTable"><thead><tr><th>Material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead><tbody>' + materialRows(plan.totalProcessed, true) + '</tbody></table></div></div><div class="vilCard"><b>Total raw equivalent</b><div class="vilScroll"><table class="vilTable"><thead><tr><th>Raw material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead><tbody>' + materialRows(plan.totalRaw, true) + '</tbody></table></div></div><div class="vilCard"><b>Missing after inventory – processed</b><div class="vilScroll"><table class="vilTable"><thead><tr><th>Material</th><th>Qty</th></tr></thead><tbody>' + materialRows(missingProcessed, false) + '</tbody></table></div></div><div class="vilCard"><b>Missing after inventory – raw equivalent</b><div class="vilScroll"><table class="vilTable"><thead><tr><th>Raw material</th><th>Qty</th></tr></thead><tbody>' + materialRows(missingRaw, false) + '</tbody></table></div></div>' + playerCards; }
 
-    function render() { const panel = document.getElementById('vilPanel'); if (!panel) return; const collapsed = localStorage.getItem(LS.collapsed) === '1'; const body = state.tab === 'tools' ? toolsBody() : state.tab === 'runes' ? runesBody() : state.tab === 'planner' ? plannerBody() : inventoryBody(); panel.innerHTML = '<div id="vilHead"><span class="vilMove">MOVE</span><div class="vilTitle">VoidIdle Party Planner<div class="vilSub">Inventory: ' + Object.keys(state.inventory || {}).length + ' · Party: ' + Object.keys(state.partyTools || {}).length + ' · Tool recipes: ' + getToolRecipes().length + ' · Runes: ' + getRuneRecipes().length + '</div></div><button class="vilBtn" data-act="collapse">' + (collapsed ? '+' : '−') + '</button></div><div class="' + (collapsed ? 'vilHidden' : '') + '"><div class="vilTabs">' + tabButton('inventory', 'Inventory') + tabButton('tools', 'Tools') + tabButton('runes', 'Runes') + tabButton('planner', 'Planner') + '</div><div class="vilBody">' + (state.msg ? '<div class="vilCard vilTiny">' + esc(state.msg) + '</div>' : '') + body + '</div></div>'; makeCardsCollapsible(panel); bindEvents(panel, collapsed); }
-
-    function bindEvents(panel, collapsed) {
-      panel.querySelectorAll('[data-tab]').forEach(btn => { btn.onclick = () => { state.tab = btn.dataset.tab; localStorage.setItem(LS.tab, state.tab); render(); }; });
-      panel.querySelectorAll('[data-remove-tool-record]').forEach(btn => { btn.onclick = () => removeToolRecord(btn.dataset.removeToolRecord); });
-      const tierSelect = panel.querySelector('#vilTargetTier'); if (tierSelect) { tierSelect.value = String(state.targetTier); tierSelect.onchange = () => { state.targetTier = Number(tierSelect.value || 2); localStorage.setItem(LS.targetTier, String(state.targetTier)); render(); }; }
-      const runeTierSelect = panel.querySelector('#vilRuneTier'); if (runeTierSelect) { runeTierSelect.value = String(state.runeTier); runeTierSelect.onchange = () => { state.runeTier = Number(runeTierSelect.value || 1); localStorage.setItem(LS.runeTier, String(state.runeTier)); render(); }; }
-      panel.querySelectorAll('[data-rune-qty]').forEach(input => { input.onchange = input.oninput = () => { const id = input.dataset.runeQty; const qty = Math.max(0, Math.floor(Number(input.value || 0))); if (qty > 0) state.runeQty[id] = qty; else delete state.runeQty[id]; saveJSON(LS.runeQty, state.runeQty); render(); }; });
-      panel.querySelectorAll('[data-act]').forEach(btn => { btn.onclick = () => { const act = btn.dataset.act; if (act === 'collapse') { localStorage.setItem(LS.collapsed, collapsed ? '0' : '1'); render(); return; } if (act === 'scanInventory') scanInventory(); if (act === 'copyInventory') copyText(JSON.stringify({ scannedAt: localStorage.getItem(LS.scannedAt) || null, inventory: state.inventory }, null, 2), 'Inventory copied.'); if (act === 'clearInventory') clearInventory(); if (act === 'loadCrafting') loadCrafting(); if (act === 'copyCrafting') copyText(JSON.stringify(state.crafting || {}, null, 2), 'Crafting cache copied.'); if (act === 'copyCraftingSniff') copyText(JSON.stringify(window.__vilLastCraftingRequest || loadJSON(LS.debugCraftingResponse, null) || { error: 'No /api/crafting sniff saved yet. Click Load / Refresh Crafting Data first.' }, null, 2), 'Crafting sniff copied.'); if (act === 'clearCrafting') clearCrafting(); if (act === 'loadPartyTools') loadPartyTools(); if (act === 'copyTools') copyText(JSON.stringify({ loadedAt: localStorage.getItem(LS.partyToolsAt) || null, partyTools: state.partyTools }, null, 2), 'Tools copied.'); if (act === 'clearTools') clearTools(); if (act === 'copyPlanner') copyText(JSON.stringify(plannerAll(), null, 2), 'Planner copied.'); if (act === 'copyRunePlan') copyText(JSON.stringify(selectedRunePlan(), null, 2), 'Rune plan copied.'); if (act === 'copySpiritDebug') copyText(JSON.stringify(debugCraftingSpiritEssenceSources(), null, 2), 'Spirit Essence debug copied.'); if (act === 'clearRuneSelection') clearRuneSelection(); }; });
+    function render() {
+      const body = state.tab === 'tools' ? toolsBody()
+                 : state.tab === 'runes' ? runesBody()
+                 : state.tab === 'planner' ? plannerBody()
+                 : inventoryBody();
+      return (state.msg ? '<div class="vilCard vilTiny">' + esc(state.msg) + '</div>' : '')
+           + '<div class="vilTabs">'
+           + tabButton('inventory', 'Inventory') + tabButton('tools', 'Tools') + tabButton('runes', 'Runes') + tabButton('planner', 'Planner')
+           + '</div>'
+           + body;
     }
 
-    function _boot() { installCSS(); makePanel(); }
+    function renderIntoPanel() {
+      if (!appRef) return;
+      const panel = appRef.ui.getPanel(definition.id);
+      if (!panel) return;
+      const bodyEl = panel.querySelector('.vim-body');
+      if (!bodyEl) return;
+      bodyEl.innerHTML = render();
+      makeCardsCollapsible(panel);
+      bindEvents(panel);
+    }
+
+    function bindEvents(panel) {
+      panel.querySelectorAll('[data-tab]').forEach(btn => { btn.onclick = () => { state.tab = btn.dataset.tab; localStorage.setItem(LS.tab, state.tab); renderIntoPanel(); }; });
+      panel.querySelectorAll('[data-remove-tool-record]').forEach(btn => { btn.onclick = () => removeToolRecord(btn.dataset.removeToolRecord); });
+      const tierSelect = panel.querySelector('#vilTargetTier'); if (tierSelect) { tierSelect.value = String(state.targetTier); tierSelect.onchange = () => { state.targetTier = Number(tierSelect.value || 2); localStorage.setItem(LS.targetTier, String(state.targetTier)); renderIntoPanel(); }; }
+      const runeTierSelect = panel.querySelector('#vilRuneTier'); if (runeTierSelect) { runeTierSelect.value = String(state.runeTier); runeTierSelect.onchange = () => { state.runeTier = Number(runeTierSelect.value || 1); localStorage.setItem(LS.runeTier, String(state.runeTier)); renderIntoPanel(); }; }
+      panel.querySelectorAll('[data-rune-qty]').forEach(input => { input.onchange = input.oninput = () => { const id = input.dataset.runeQty; const qty = Math.max(0, Math.floor(Number(input.value || 0))); if (qty > 0) state.runeQty[id] = qty; else delete state.runeQty[id]; saveJSON(LS.runeQty, state.runeQty); renderIntoPanel(); }; });
+      panel.querySelectorAll('[data-act]').forEach(btn => { btn.onclick = () => { const act = btn.dataset.act; if (act === 'scanInventory') scanInventory(); if (act === 'copyInventory') copyText(JSON.stringify({ scannedAt: localStorage.getItem(LS.scannedAt) || null, inventory: state.inventory }, null, 2), 'Inventory copied.'); if (act === 'clearInventory') clearInventory(); if (act === 'loadCrafting') loadCrafting(); if (act === 'copyCrafting') copyText(JSON.stringify(state.crafting || {}, null, 2), 'Crafting cache copied.'); if (act === 'copyCraftingSniff') copyText(JSON.stringify(window.__vilLastCraftingRequest || loadJSON(LS.debugCraftingResponse, null) || { error: 'No /api/crafting sniff saved yet. Click Load / Refresh Crafting Data first.' }, null, 2), 'Crafting sniff copied.'); if (act === 'clearCrafting') clearCrafting(); if (act === 'loadPartyTools') loadPartyTools(); if (act === 'copyTools') copyText(JSON.stringify({ loadedAt: localStorage.getItem(LS.partyToolsAt) || null, partyTools: state.partyTools }, null, 2), 'Tools copied.'); if (act === 'clearTools') clearTools(); if (act === 'copyPlanner') copyText(JSON.stringify(plannerAll(), null, 2), 'Planner copied.'); if (act === 'copyRunePlan') copyText(JSON.stringify(selectedRunePlan(), null, 2), 'Rune plan copied.'); if (act === 'copySpiritDebug') copyText(JSON.stringify(debugCraftingSpiritEssenceSources(), null, 2), 'Spirit Essence debug copied.'); if (act === 'clearRuneSelection') clearRuneSelection(); }; });
+    }
 
     return {
       id: definition.id,
@@ -341,16 +350,20 @@
       icon: definition.icon || '🗓️',
       description: definition.description || '',
 
-      init(_app) {
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', _boot, { once: true });
-        } else {
-          _boot();
-        }
+      init(app) {
+        appRef = app;
+        installCSS();
+        app.ui.registerPanel({
+          id: definition.id,
+          title: definition.name,
+          icon: definition.icon || '🗓️',
+          render: () => render(),
+          footer: 'Inventory: ' + Object.keys(state.inventory).length + ' · Tool recipes: ' + getToolRecipes().length + ' · Runes: ' + getRuneRecipes().length,
+        });
+        renderIntoPanel();
       },
 
       destroy() {
-        document.getElementById('vilPanel')?.remove();
         document.getElementById('vilCss')?.remove();
       },
     };
