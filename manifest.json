@@ -1,5 +1,5 @@
 {
-  "version": "2026-05-01.2",
+  "version": "2026-05-02.1",
   "categories": [
     { "id": "misc",    "label": "Misc"    },
     { "id": "fighter", "label": "Fighter" },
@@ -79,6 +79,17 @@
       "description": "Inventory scan, party tools, rune planner, tool planner, and crafting debug.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/party-planner.js",
       "version": "2026-05-01.1",
+      "category": "gather",
+      "enabled": true,
+      "dependencies": ["core"]
+    },
+    {
+      "id": "party-planner-debug",
+      "name": "Party Planner Debug",
+      "icon": "🔍",
+      "description": "Inventory scan, party tools, rune planner, tool planner, crafting debug, and spirit essence trace.",
+      "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/party-planner-debug.js",
+      "version": "2026-05-02.1",
       "category": "gather",
       "enabled": true,
       "dependencies": ["core"]
