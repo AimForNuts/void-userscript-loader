@@ -3384,7 +3384,7 @@
   }
 
   function renderIntoPanel(app) {
-    const panel = app?.panels?.get(definition.id);
+    const panel = app?.ui?.getPanel(definition.id);
     if (!panel) return;
 
     const body = panel.querySelector(".vim-body");
