@@ -1040,9 +1040,28 @@
       rollQualities[normStatKey(k)] = v / 100;
     }
 
-    // Equipped item for same slot — compare base-to-base so forge upgrades don't skew scoring
-    const eqKey        = slotType === "Ring" ? (equippedMap["Ring 1"] ? "Ring 1" : "Ring 2") : slotType;
-    const equippedItem = equippedMap[eqKey] ?? null;
+    // Equipped item for same slot — for rings, pick whichever slot this item upgrades more
+    let equippedItem = null;
+    if (slotType === "Ring") {
+      const r1 = equippedMap["Ring 1"] ?? null;
+      const r2 = equippedMap["Ring 2"] ?? null;
+      if (r1 && r2) {
+        const fc = state.filters.get(filterKeyOverride ?? state.activeFilterKey) ?? mkFC([]);
+        const scoreVs = (eq) => {
+          const eqS = {};
+          for (const [k, v] of Object.entries(eq.stats)) { if (k !== "_qualities") eqS[normStatKey(k)] = v; }
+          const d = [...new Set([...Object.keys(ownBaseStats), ...Object.keys(eqS)])]
+            .filter(sk => Math.abs((ownBaseStats[sk]??0) - (eqS[sk]??0)) >= 0.001)
+            .map(sk => ({ stat:sk, isUp:(ownBaseStats[sk]??0)>(eqS[sk]??0), isDown:(ownBaseStats[sk]??0)<(eqS[sk]??0) }));
+          return calcPrefScore(d, fc, 0, new Set(Object.keys(ownBaseStats)));
+        };
+        equippedItem = scoreVs(r1) >= scoreVs(r2) ? r1 : r2;
+      } else {
+        equippedItem = r1 ?? r2;
+      }
+    } else {
+      equippedItem = equippedMap[slotType] ?? null;
+    }
     const eqBaseStats  = {};
     if (equippedItem) {
       for (const [k, v] of Object.entries(equippedItem.stats)) {
