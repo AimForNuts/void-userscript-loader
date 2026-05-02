@@ -1,5 +1,5 @@
 {
-  "version": "2026-05-02.2",
+  "version": "2026-05-02.3",
   "categories": [
     { "id": "misc",    "label": "Misc"    },
     { "id": "fighter", "label": "Fighter" },
@@ -15,6 +15,7 @@
       "version": "2026-05-02.1",
       "category": "misc",
       "enabled": true,
+      "hidden": true,
       "dependencies": ["core"]
     },
     {
