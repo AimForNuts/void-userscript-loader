@@ -1204,25 +1204,26 @@
     },
   };
 
-  function renderModuleRow(app, module) {
-    const state = getPanelState(app, module.id);
+  function renderModuleRow(app, entry) {
+    const state = getPanelState(app, entry.id);
 
     if (!state) {
       return "";
     }
 
-    const status = !state.enabled ? "Off" : state.open ? "Open" : "In tray";
-    const statusClass = state.enabled ? "vim-good" : "vim-muted";
+    const disabledBadge = entry.enabled === false
+      ? '<div class="vim-muted" style="font-size:10px;margin-top:2px;">Disabled in manifest</div>'
+      : '';
 
     return `
     <div class="vim-row">
       <div class="vim-row-main">
-        <div class="vim-row-title">${escapeHtml(module.icon)} ${escapeHtml(module.name)}</div>
-        <div class="vim-muted">${escapeHtml(module.description)}</div>
-        <div class="${statusClass}">${status}</div>
+        <div class="vim-row-title">${escapeHtml(entry.icon || '')} ${escapeHtml(entry.name)}</div>
+        <div class="vim-muted">${escapeHtml(entry.description || '')}</div>
+        ${disabledBadge}
       </div>
       <label class="vim-switch-row">
-        <input type="checkbox" data-module-toggle="${escapeHtml(module.id)}" ${state.enabled ? "checked" : ""} />
+        <input type="checkbox" data-module-toggle="${escapeHtml(entry.id)}" ${state.enabled ? "checked" : ""} />
         <span>Enabled</span>
       </label>
     </div>
