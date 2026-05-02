@@ -2789,6 +2789,11 @@
         state.marketHideFuture = !state.marketHideFuture;
         render();
       });
+      body.querySelector("#sgMktCtx")?.addEventListener("change", e => {
+        state.marketCtxPlayerId = e.target.value || null;
+        rebuildMarketItems();
+        render();
+      });
     }
 
     if (state.activeTab==="team") {
@@ -2807,7 +2812,15 @@
         btn.addEventListener("click", e => {
           e.stopPropagation();
           const pid = btn.dataset.teamDel;
-          if (pid) { delete teamProfiles[pid]; saveTeamProfiles(); render(); }
+          if (pid) {
+            delete teamProfiles[pid];
+            if (state.marketCtxPlayerId === pid) {
+              state.marketCtxPlayerId = null;
+              rebuildMarketItems();
+            }
+            saveTeamProfiles();
+            render();
+          }
         });
       });
       body.querySelectorAll(".sg-team-fchip").forEach(btn => {
