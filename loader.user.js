@@ -1608,13 +1608,14 @@
     _bodyId: `${CONFIG.appId}-manager-body`,
 
     init(app) {
-      app.events.on('loader:manifest',        () => this._refresh(app));
-      app.events.on('loader:module:loaded',   () => this._refresh(app));
-      app.events.on('loader:module:failed',   () => this._refresh(app));
-      app.events.on('loader:module:skipped',  () => this._refresh(app));
-      app.events.on('loader:module:reloaded', () => this._refresh(app));
-      app.events.on('loader:complete',        () => this._refresh(app));
-      app.events.on('loader:error',           () => this._refresh(app));
+      const refresh = () => WindowManager.renderMaster(app);
+      app.events.on('loader:manifest',        refresh);
+      app.events.on('loader:module:loaded',   refresh);
+      app.events.on('loader:module:failed',   refresh);
+      app.events.on('loader:module:skipped',  refresh);
+      app.events.on('loader:module:reloaded', refresh);
+      app.events.on('loader:complete',        refresh);
+      app.events.on('loader:error',           refresh);
     },
 
     _refresh(app) {
