@@ -96,6 +96,15 @@
 
   const GEAR_ITEM_TYPES = new Set(Object.keys(ITEM_TYPE_TO_SLOT));
 
+  const STR_WEAPONS = new Set(["sword","axe","mace","dagger","spear","bow","crossbow"]);
+
+  // Base attack interval in seconds per weapon type (adjusted by atkSpeed% gear stat)
+  const WEAPON_BASE_SPEED = {
+    sword:2.0, axe:2.5, mace:2.8, dagger:1.5, spear:2.2,
+    bow:3.0, crossbow:3.5, harp:2.0, fan:1.8,
+    staff:2.0, wand:1.8, scepter:2.2, scythe:2.5,
+  };
+
   const ITEM_ICONS = {
     bow:"🏹", crossbow:"🏹",
     sword:"⚔️", axe:"🪓", mace:"🔨", dagger:"🗡️", spear:"🗡️",
@@ -290,6 +299,93 @@
       return res;
     };
   })();
+
+  function parseInspectCharStats(data) {
+    const src = (data.stats && typeof data.stats === "object") ? data.stats : data;
+    function pick(...keys) {
+      for (const k of keys) if (src[k] != null) return Number(src[k]);
+      return null;
+    }
+    return {
+      atkPhys:     pick("atkPhys",    "physicalAttack", "physAtk"),
+      atkSpeed:    pick("atkSpeed",   "attackSpeed",    "speed"),
+      critChance:  pick("critChance", "crit",           "critRate"),
+      critDmg:     pick("critDmg",    "critDamage"),
+      hitChance:   pick("hitChance",  "hit"),
+      maxHpStat:   pick("maxHpStat",  "maxHp",          "hp"),
+      def:         pick("def",        "defense",        "defence"),
+      allStats:    pick("allStats",   "allStat"),
+      maxManaStat: pick("maxManaStat","maxMana",         "mana"),
+      manaRegen:   pick("manaRegen"),
+    };
+  }
+
+  function deriveCharStatsFromProfile(profile) {
+    const eqMap = profile.equippedMap ?? {};
+    const items = Object.values(eqMap);
+
+    // Parse level from e.g. "Level 42" or "Lv 42"
+    const levelMatch = (profile.levelText ?? "").match(/\d+/);
+    const level = levelMatch ? parseInt(levelMatch[0], 10) : 1;
+
+    // Weapon type determines strength vs magic class
+    const weapon = items.find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
+    const wtype  = (weapon?.type ?? "").toLowerCase();
+    const isStr  = STR_WEAPONS.has(wtype);
+
+    // Naked stats from level (3 attribute points per level)
+    const pts      = level * 3;
+    const nakedAtk  = pts * 1.5;
+    const nakedHp   = isStr ? pts * 5   : 0;
+    const nakedDef  = isStr ? pts * 0.3 : 0;
+    const nakedMana = isStr ? 0 : pts * 4;
+
+    // Sum total item stats (includes forge bonuses) across all equipped slots
+    let gearAtk = 0, gearHp = 0, gearDef = 0, gearAllStats = 0;
+    let gearAtkSpeed = 0, gearCrit = 0, gearCritDmg = 0, gearHit = 0;
+    let gearMana = 0, gearMRegen = 0;
+
+    for (const item of items) {
+      const src = item.totalStats ?? item.stats ?? {};
+      for (const [k, v] of Object.entries(src)) {
+        if (k === "_qualities") continue;
+        const nk = normStatKey(k);
+        if (nk === "atk")        gearAtk      += v;
+        if (nk === "hp")         gearHp       += v;
+        if (nk === "def")        gearDef      += v;
+        if (nk === "allStats")   gearAllStats += v;
+        if (nk === "atkSpeed")   gearAtkSpeed += v;
+        if (nk === "critChance") gearCrit     += v;
+        if (nk === "critDmg")    gearCritDmg  += v;
+        if (nk === "hitChance")  gearHit      += v;
+        if (nk === "mana")       gearMana     += v;
+        if (nk === "manaRegen")  gearMRegen   += v;
+      }
+    }
+
+    const mult      = 1 + gearAllStats / 100;
+    const baseSpeed = WEAPON_BASE_SPEED[wtype] ?? 2.0;
+    const atkSpeed  = gearAtkSpeed > 0 ? baseSpeed / (1 + gearAtkSpeed / 100) : baseSpeed;
+
+    return {
+      atkPhys:     (nakedAtk + gearAtk) * mult,
+      atkSpeed,
+      critChance:  gearCrit,
+      critDmg:     150 + gearCritDmg,
+      hitChance:   95 + gearHit,
+      maxHpStat:   (nakedHp + gearHp) * mult,
+      def:         (nakedDef + gearDef) * mult,
+      allStats:    gearAllStats,
+      maxManaStat: (nakedMana + gearMana) * mult,
+      manaRegen:   gearMRegen * mult,
+    };
+  }
+
+  function selfCtx() {
+    if (state.atkPhys != null && state.atkSpeed != null) return state;
+    if (!Object.keys(state.equipped).length) return state;
+    return deriveCharStatsFromProfile({ equippedMap: state.equipped, levelText: String(state.level ?? "") });
+  }
 
   function buildEquippedMap(equippedArray) {
     const map = {};
@@ -599,12 +695,12 @@
         const baseMRegen = (state.manaRegen  ?? 0)  / (1 + curAllStats / 100);
         const newMana    = (baseMana   + manaDelta)   * (1 + (curAllStats + allStatsDelta) / 100);
         const newMRegen  = (baseMRegen + mregenDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-        const score = (newMana - (state.maxManaStat ?? 0)) + (newMRegen - (state.manaRegen ?? 0)) * 30;
+        const score = (newMana - (state.maxManaStat ?? 0)) + (newMRegen - (state.manaRegen ?? 0)) * 3;
         if (Math.abs(score) >= 1) {
           const sign = score >= 0 ? "+" : "";
           const col  = score > 0 ? "#60a5fa" : "#f87171";
           const SEP  = `style="padding:3px 0;border-top:1px solid rgba(255,255,255,.06);margin-top:4px"`;
-          manaDeltaHtml = `<div class="sg-row" ${SEP} title="Mana Score = ΔPool + ΔRegen×30"><span class="sg-key">∆ Mana</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
+          manaDeltaHtml = `<div class="sg-row" ${SEP} title="Mana Score = ΔPool + ΔRegen×3"><span class="sg-key">∆ Mana</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
         }
       }
     }
@@ -617,7 +713,21 @@
       <div class="sg-diffs">${diffsHtml || '<span style="color:#4b5563;font-size:10px;">No stat differences</span>'}</div>
       ${dpsDeltaHtml}${survDeltaHtml}${manaDeltaHtml}
     `;
-    el.appendChild(div);
+
+    // Position to the right of the tooltip (or left if no room)
+    const rect = el.getBoundingClientRect();
+    const panelW = 171;
+    const left = (rect.right + 6 + panelW <= window.innerWidth)
+      ? rect.right + 6
+      : rect.left - panelW - 6;
+    div.style.left = left + "px";
+    div.style.top  = Math.max(4, rect.top) + "px";
+    document.body.appendChild(div);
+
+    // Remove when tooltip is removed from DOM
+    new MutationObserver((_, obs) => {
+      if (!document.body.contains(el)) { div.remove(); obs.disconnect(); }
+    }).observe(document.body, { childList: true, subtree: true });
   }
 
   function setupTooltipObserver() {
@@ -1101,12 +1211,12 @@
    * CALCULATIONS
    **************************************************************************/
 
-  function calcDPS() {
-    if (!state.atkPhys || !state.atkSpeed || state.atkSpeed <= 0) return null;
-    const hitRate  = (state.hitChance  ?? 95)  / 100;
-    const critRate = (state.critChance ?? 0)   / 100;
-    const critMult = (state.critDmg    ?? 150) / 100;
-    return (state.atkPhys / state.atkSpeed) * hitRate * (1 + critRate * (critMult - 1));
+  function calcDPS(ctx = state) {
+    if (!ctx.atkPhys || !ctx.atkSpeed || ctx.atkSpeed <= 0) return null;
+    const hitRate  = (ctx.hitChance  ?? 95)  / 100;
+    const critRate = (ctx.critChance ?? 0)   / 100;
+    const critMult = (ctx.critDmg    ?? 150) / 100;
+    return (ctx.atkPhys / ctx.atkSpeed) * hitRate * (1 + critRate * (critMult - 1));
   }
 
   /**************************************************************************
@@ -1313,6 +1423,20 @@
     }
     .sg-icon-btn:hover { color:#e8eefc; background:rgba(255,255,255,.06); }
 
+    .sg-help-box {
+      border:1px solid rgba(255,255,255,.07); border-radius:6px;
+      margin-bottom:8px; background:rgba(255,255,255,.02);
+    }
+    .sg-help-summary {
+      cursor:pointer; padding:5px 8px; font-size:11px; color:#64748b;
+      list-style:none; user-select:none; outline:none;
+    }
+    .sg-help-summary::-webkit-details-marker { display:none; }
+    .sg-help-body { padding:4px 10px 8px; font-size:10px; color:#6b7280; line-height:1.6; }
+    .sg-help-body b { color:#94a3b8; }
+    .sg-help-body table { border-collapse:collapse; width:100%; margin:3px 0; }
+    .sg-help-body td { padding:1px 6px 1px 0; vertical-align:top; }
+    .sg-help-body td:first-child { white-space:nowrap; color:#94a3b8; font-weight:600; }
     .sg-filter-edit {
       background:#0a1220; border:1px solid rgba(59,130,246,.3);
       border-radius:8px; padding:8px; margin-top:6px;
@@ -1370,8 +1494,10 @@
     .sg-footer:hover .sg-footer-name { color:#3b82f6; }
 
     .sg-chat-compare {
-      border-top:1px solid rgba(255,255,255,.14);
-      margin-top:10px; padding-top:8px;
+      position:fixed; z-index:2147483647;
+      width:165px; background:#060912;
+      border:1px solid rgba(255,255,255,.16); border-radius:8px;
+      padding:8px;
       font:11px/1.4 Inter,ui-sans-serif,system-ui,sans-serif;
     }
     .sg-chat-compare-head {
@@ -1394,7 +1520,39 @@
    * UI SETUP
    **************************************************************************/
 
-  let panelEl = null;
+  let panelEl        = null;
+  let _moduleApp     = null;
+  let filterHelpOpen = false;
+
+  function _panelShellHtml() {
+    return `
+      <div class="sg-tabs">
+        <button class="sg-tab active" data-tab="stats">📊 Stats</button>
+        <button class="sg-tab"        data-tab="gear">🎒 Gear</button>
+        <button class="sg-tab"        data-tab="filters">⚙️ Filters</button>
+        <button class="sg-tab"        data-tab="market">🏪 Market</button>
+        <button class="sg-tab"        data-tab="team">👥 Team</button>
+      </div>
+      <div class="sg-body" id="sgBody"><div class="sg-hint">Waiting for data…</div></div>
+    `;
+  }
+
+  function _attachTabListeners(container) {
+    container.querySelectorAll(".sg-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        container.querySelectorAll(".sg-tab").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.activeTab = btn.dataset.tab;
+        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team";
+        if (_moduleApp) {
+          panelEl.style.width = isWide ? "480px" : "310px";
+        } else {
+          panelEl.classList.toggle("sg-wide", isWide);
+        }
+        render();
+      });
+    });
+  }
 
   function installUI() {
     const style = document.createElement("style");
@@ -1416,50 +1574,50 @@
     `;
     document.documentElement.appendChild(hlStyle);
 
-    panelEl = document.createElement("div");
-    panelEl.id = "sgPanel";
-    panelEl.innerHTML = `
-      <div class="sg-drag" id="sgDrag">
-        <span class="sg-title">⚡ Loot Helper <span style="font-size:10px;font-weight:400;color:#4b5563;">v8.20.0</span></span>
-        <button class="sg-btn" id="sgHide">Hide</button>
-      </div>
-      <div class="sg-tabs">
-        <button class="sg-tab active" data-tab="stats">📊 Stats</button>
-        <button class="sg-tab"        data-tab="gear">🎒 Gear</button>
-        <button class="sg-tab"        data-tab="filters">⚙️ Filters</button>
-        <button class="sg-tab"        data-tab="market">🏪 Market</button>
-        <button class="sg-tab"        data-tab="team">👥 Team</button>
-      </div>
-      <div class="sg-body" id="sgBody"><div class="sg-hint">Waiting for data…</div></div>
-      <div class="sg-footer">Produced, maintained &amp; improved by <span class="sg-footer-name">teCsor</span></div>
-    `;
-
-    const toggleEl = document.createElement("button");
-    toggleEl.id = "sgToggle";
-    toggleEl.textContent = "⚡ Loot";
-    toggleEl.style.display = "none";
-
-    document.documentElement.appendChild(panelEl);
-    document.documentElement.appendChild(toggleEl);
-
-    document.getElementById("sgHide").addEventListener("click", () => {
-      panelEl.classList.add("sg-hidden"); toggleEl.style.display = "block";
-    });
-    toggleEl.addEventListener("click", () => {
-      panelEl.classList.remove("sg-hidden"); toggleEl.style.display = "none";
-    });
-
-    panelEl.querySelectorAll(".sg-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        panelEl.querySelectorAll(".sg-tab").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        state.activeTab = btn.dataset.tab;
-        panelEl.classList.toggle("sg-wide", state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team");
-        render();
+    if (_moduleApp) {
+      // Module mode: register with loader's WindowManager — tray button + managed panel
+      _moduleApp.ui.registerPanel({
+        id:     "loot-helper",
+        title:  "Loot Helper",
+        icon:   "⚡",
+        render: _panelShellHtml,
+        width:  310,
+        height: 580,
+        footer: "Produced, maintained & improved by teCsor",
       });
-    });
+      panelEl = _moduleApp.ui.getPanel("loot-helper");
+      if (panelEl) _attachTabListeners(panelEl);
+    } else {
+      // Standalone mode: create own fixed panel
+      panelEl = document.createElement("div");
+      panelEl.id = "sgPanel";
+      panelEl.innerHTML = `
+        <div class="sg-drag" id="sgDrag">
+          <span class="sg-title">⚡ Loot Helper <span style="font-size:10px;font-weight:400;color:#4b5563;">v8.24.0</span></span>
+          <button class="sg-btn" id="sgHide">Hide</button>
+        </div>
+        ${_panelShellHtml()}
+        <div class="sg-footer">Produced, maintained &amp; improved by <span class="sg-footer-name">teCsor</span></div>
+      `;
 
-    makeDraggable(panelEl, document.getElementById("sgDrag"));
+      const toggleEl = document.createElement("button");
+      toggleEl.id = "sgToggle";
+      toggleEl.textContent = "⚡ Loot";
+      toggleEl.style.display = "none";
+
+      document.documentElement.appendChild(panelEl);
+      document.documentElement.appendChild(toggleEl);
+
+      document.getElementById("sgHide").addEventListener("click", () => {
+        panelEl.classList.add("sg-hidden"); toggleEl.style.display = "block";
+      });
+      toggleEl.addEventListener("click", () => {
+        panelEl.classList.remove("sg-hidden"); toggleEl.style.display = "none";
+      });
+
+      _attachTabListeners(panelEl);
+      makeDraggable(panelEl, document.getElementById("sgDrag"));
+    }
   }
 
   function makeDraggable(panel, handle) {
@@ -1605,19 +1763,41 @@
     const fe = state.filterEdit;
     let html = `<div class="sg-sec">
       <div class="sg-lbl">Filters</div>
+      <details class="sg-help-box"${filterHelpOpen ? " open" : ""}>
+        <summary class="sg-help-summary">ℹ️ How filters work</summary>
+        <div class="sg-help-body">
+          <b>What is a filter?</b> A filter scores every bag item by comparing its base stats to your currently equipped item in the same slot. The active filter (blue dot) drives all item labels and highlights.<br><br>
+          <b>Stat tiers — per changed stat:</b>
+          <table>
+            <tr><td>★ Preferred</td><td>+4 / −4 per stat</td></tr>
+            <tr><td>♥ Liked</td><td>+2 / −2 per stat</td></tr>
+            <tr><td>(untracked)</td><td>+0.5 / −0.5 per stat</td></tr>
+          </table>
+          <b>Result labels</b> (Top/Interesting also require ≥ 2 tracked stats improved, OR a tracked stat was multi-rolled):
+          <table>
+            <tr><td>✅ Top Pick</td><td>score ≥ 4</td></tr>
+            <tr><td>👍 Interesting</td><td>score ≥ 1</td></tr>
+            <tr><td>↔ Neutral</td><td>score ≥ −1</td></tr>
+            <tr><td>💾 Salvage</td><td>score &lt; −1</td></tr>
+          </table>
+          <b>Mode (🗡 / 🛡)</b> adjusts the score by the item's DPS (Aggressive) or EHP (Defensive) change vs. your equipped item: &gt;5% → ±2, 2–5% → ±1.<br><br>
+          <b>Multi-roll bonus</b> adds a flat score when a multi-rolled item has a specific stat — set per stat in the ✏ edit panel.<br><br>
+          <b>Roll quality cap</b>: items with median roll quality &lt; 75% are capped at Neutral; weapons with ATK quality &lt; 75% are capped at Salvage.
+        </div>
+      </details>
       <div class="sg-filter-list">`;
 
     for (const [key, fc] of state.filters) {
       const isActive  = key === state.activeFilterKey;
       const isEditing = fe?.key === key;
-      html += `<div class="sg-filter-row${isActive?" active":""}${fc.enabled?"":" disabled"}" data-fkey="${esc(key)}">
+      html += `<div class="sg-filter-row${isActive?" active":""}${fc.enabled?"":" disabled"}" data-fkey="${esc(key)}" title="${isActive?"Active filter — click another row to switch":"Click to set as active filter"}">
         <div class="sg-filter-dot"></div>
         <span class="sg-filter-name">${esc(key)}</span>
         <span class="sg-filter-statcount">${fc.stats.size + fc.preferredStats.size} stats${fc.preferredStats.size ? ` · ★${fc.preferredStats.size}` : ""}</span>
-        <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable":"Enable"}">${fc.enabled?"●":"○"}</button>
-        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive — DPS beeinflusst Bewertung (klicken für 🛡 Defensiv)":"🛡 Defensiv — EHP beeinflusst Bewertung (klicken für 🗡 Aggressiv)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
-        <button class="sg-icon-btn" data-edit="${esc(key)}">✏</button>
-        ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}">✗</button>`:""}
+        <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter (items won't be scored by this filter)":"Enable filter"}">${fc.enabled?"●":"○"}</button>
+        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts item score (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts item score (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
+        <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: choose which stats are Liked (♥ ±2) or Preferred (★ ±4)">✏</button>
+        ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}" title="Delete this filter">✗</button>`:""}
       </div>`;
       if (isEditing) {
         html += `<div class="sg-filter-edit">
@@ -1626,17 +1806,17 @@
             <button class="sg-btn" id="sgFeSave">Save</button>
             <button class="sg-btn" id="sgFeCancel">✗</button>
           </div>
-          <div style="font-size:10px;color:#64748b;margin:2px 0 4px;">Click to cycle: off → ♥ Liked (±2) → ★ Preferred (±4) → off</div>
+          <div style="font-size:10px;color:#64748b;margin:2px 0 4px;">Click to cycle: off → ♥ Liked (score ±2) → ★ Preferred (score ±4) → off · ★ on a double-rolled stat = always Interesting</div>
           <div class="sg-pref-grid">`;
         for (const def of STAT_DEFS) {
           const isPref  = fe.preferredStats.has(def.key);
           const isLiked = fe.stats.has(def.key);
           const cls     = isPref ? "sg-pref-chip preferred" : isLiked ? "sg-pref-chip active" : "sg-pref-chip";
           const lbl     = isPref ? `★ ${def.label}` : isLiked ? `♥ ${def.label}` : def.label;
-          html += `<button class="${cls}" data-estat="${esc(def.key)}">${esc(lbl)}</button>`;
+          html += `<button class="${cls}" data-estat="${esc(def.key)}" title="${isPref?`★ Preferred — scores ±4 per change`:isLiked?`♥ Liked — scores ±2 per change`:`Click to mark as Liked (♥)`}">${esc(lbl)}</button>`;
         }
         html += `</div>
-          <div style="font-size:10px;color:#64748b;margin:8px 0 4px;">Multi-roll bonus — click to cycle +0→+1→+2→+3:</div>
+          <div style="font-size:10px;color:#64748b;margin:8px 0 4px;">Multi-roll bonus — adds flat score when a multi-rolled item has this stat (click to cycle +0 → +1 → +2 → +3):</div>
           <div class="sg-mb-grid">`;
         for (const def of STAT_DEFS) {
           const val = fe.multiBonus[def.key] ?? 0;
@@ -1654,22 +1834,22 @@
       html += `<div class="sg-sec">
         <div class="sg-lbl">Init from Preset</div>
         <div class="sg-preset-row">`;
-      for (const name of Object.keys(FILTER_PRESETS)) {
-        html += `<button class="sg-btn" data-preset="${esc(name)}">${esc(name)}</button>`;
+      for (const [name, keys] of Object.entries(FILTER_PRESETS)) {
+        html += `<button class="sg-btn" data-preset="${esc(name)}" title="Create a new filter from the ${name} preset&#10;Stats: ${keys.join(', ')}">${esc(name)}</button>`;
       }
       html += `</div></div>`;
 
       const activeFC = state.filters.get(state.activeFilterKey) ?? mkFC([]);
       html += `<div class="sg-sec">
         <div class="sg-lbl">Stats — ${esc(state.activeFilterKey)}</div>
-        <div style="font-size:10px;color:#4b5563;margin-bottom:4px;">Click to cycle: off → ♥ Liked → ★ Preferred → off · ★ double-roll → always Upgrade</div>
+        <div style="font-size:10px;color:#4b5563;margin-bottom:4px;">Click to cycle: off → ♥ Liked (score ±2) → ★ Preferred (score ±4) → off · ★ on a double-rolled stat = always Interesting</div>
         <div class="sg-pref-grid">`;
       for (const def of STAT_DEFS) {
         const isPref  = activeFC.preferredStats.has(def.key);
         const isLiked = activeFC.stats.has(def.key);
         const cls     = isPref ? "sg-pref-chip preferred" : isLiked ? "sg-pref-chip active" : "sg-pref-chip";
         const lbl     = isPref ? `★ ${def.label}` : isLiked ? `♥ ${def.label}` : def.label;
-        html += `<button class="${cls}" data-qstat="${esc(def.key)}">${esc(lbl)}</button>`;
+        html += `<button class="${cls}" data-qstat="${esc(def.key)}" title="${isPref?`★ Preferred — scores ±4 per change`:isLiked?`♥ Liked — scores ±2 per change`:`Click to mark as Liked (♥)`}">${esc(lbl)}</button>`;
       }
       html += `</div></div>`;
     }
@@ -1756,7 +1936,7 @@
       html += `<div class="sg-sec">
         <div class="sg-lbl">${esc(slot)}</div>
         <div class="sg-eq-label">Equipped: ${eqText}</div>
-        ${items.map(renderItemCard).join("")}
+        ${items.map(item => renderItemCard(item, selfCtx())).join("")}
       </div>`;
     }
     if (!hasAny) html += `<div class="sg-hint">No gear items in bag.</div>`;
@@ -1887,7 +2067,7 @@
         <div class="sg-diffs">${chips||'<span style="color:#4b5563;font-size:10px;">No diffs vs equipped</span>'}</div>
       </div>
       <div class="sg-cat-item-right">
-        ${_itemDeltasCornerHtml(item)}
+        ${_itemDeltasCornerHtml(item, selfCtx())}
         <span class="sg-slot-pill">${esc(item.slotType)}</span>
         <span class="sg-badge sg-badge-shard" style="color:#fde68a;border-color:#78350f;background:rgba(253,230,138,.1);">💰 ${priceStr}</span>
       </div>
@@ -1931,9 +2111,10 @@
   }
 
   // Returns score bump based on DPS% change: >5%→+2, >2%→+1, <-2%→-1, <-5%→-2
-  function _dpsScoreBump(item) {
-    const delta  = calcItemDpsDelta(item);
-    const curDPS = calcDPS();
+  function _dpsScoreBump(item, ctx) {
+    const c      = ctx ?? selfCtx();
+    const delta  = calcItemDpsDelta(item, c);
+    const curDPS = calcDPS(c);
     if (delta == null || !curDPS) return 0;
     const pct = (delta / curDPS) * 100;
     if (pct >  5) return  2;
@@ -1944,10 +2125,11 @@
   }
 
   // Returns score bump based on EHP% change: >5%→+2, >2%→+1, <-2%→-1, <-5%→-2
-  function _ehpScoreBump(item) {
-    const curSurv = calcSurvivability(state.maxHpStat, state.def ?? 0);
+  function _ehpScoreBump(item, ctx) {
+    const c       = ctx ?? selfCtx();
+    const curSurv = calcSurvivability(c.maxHpStat, c.def ?? 0);
     if (!curSurv) return 0;
-    const delta = calcItemSurvDelta(item);
+    const delta = calcItemSurvDelta(item, c);
     if (delta == null) return 0;
     const pct = (delta / curSurv) * 100;
     if (pct >  5) return  2;
@@ -1958,10 +2140,11 @@
   }
 
   // Returns { rec, cat, bump, mode } override when filter mode affects scoring, else null
-  function adjustedRec(item, fc, activeKey) {
-    if (!fc || fc.mode === "defensive" && !calcSurvivability(state.maxHpStat, state.def ?? 0)) return null;
-    const bump = fc.mode === "aggressive" ? _dpsScoreBump(item)
-               : fc.mode === "defensive"  ? _ehpScoreBump(item)
+  function adjustedRec(item, fc, activeKey, ctx) {
+    const c = ctx ?? selfCtx();
+    if (!fc || fc.mode === "defensive" && !calcSurvivability(c.maxHpStat, c.def ?? 0)) return null;
+    const bump = fc.mode === "aggressive" ? _dpsScoreBump(item, c)
+               : fc.mode === "defensive"  ? _ehpScoreBump(item, c)
                : 0;
     if (bump === 0) return null;
     const baseScore   = item.filterScores?.[activeKey] ?? item.prefScore ?? 0;
@@ -1976,23 +2159,23 @@
     };
   }
 
-  function calcItemDpsDelta(item) {
-    if (!state.atkPhys || !state.atkSpeed || state.atkSpeed <= 0) return null;
+  function calcItemDpsDelta(item, ctx = state) {
+    if (!ctx.atkPhys || !ctx.atkSpeed || ctx.atkSpeed <= 0) return null;
     if (!item.eqBaseStats || !item.ownBaseStats) return null;
-    const curDPS        = calcDPS();
+    const curDPS        = calcDPS(ctx);
     if (!curDPS) return null;
-    const curAllStats   = state.allStats ?? 0;
+    const curAllStats   = ctx.allStats ?? 0;
     const atkDelta      = (item.ownBaseStats.atk      ?? 0) - (item.eqBaseStats.atk      ?? 0);
     const allStatsDelta = (item.ownBaseStats.allStats  ?? 0) - (item.eqBaseStats.allStats ?? 0);
     const eqSpdPct      = item.eqBaseStats.atkSpeed   ?? 0;
     const newSpdPct     = item.ownBaseStats.atkSpeed   ?? 0;
-    const baseATK       = state.atkPhys / (1 + curAllStats / 100);
+    const baseATK       = ctx.atkPhys / (1 + curAllStats / 100);
     const newAtk        = (baseATK + atkDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-    const newSpd        = state.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
-    const newCrit       = (state.critChance ?? 0) + (item.ownBaseStats.critChance ?? 0) - (item.eqBaseStats.critChance ?? 0);
-    const newCritD      = (state.critDmg    ?? 0) + (item.ownBaseStats.critDmg    ?? 0) - (item.eqBaseStats.critDmg    ?? 0);
+    const newSpd        = ctx.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
+    const newCrit       = (ctx.critChance ?? 0) + (item.ownBaseStats.critChance ?? 0) - (item.eqBaseStats.critChance ?? 0);
+    const newCritD      = (ctx.critDmg    ?? 0) + (item.ownBaseStats.critDmg    ?? 0) - (item.eqBaseStats.critDmg    ?? 0);
     if (newAtk <= 0 || newSpd <= 0) return null;
-    const hitRate = (state.hitChance ?? 95) / 100;
+    const hitRate = (ctx.hitChance ?? 95) / 100;
     const newDPS  = (newAtk / newSpd) * hitRate * (1 + (newCrit / 100) * ((newCritD / 100) - 1));
     return newDPS - curDPS;
   }
@@ -2016,16 +2199,16 @@
     return hp * (1 + (def ?? 0) / 1000);
   }
 
-  function calcItemSurvDelta(item) {
-    if (!state.maxHpStat || !item.eqBaseStats || !item.ownBaseStats) return null;
-    const curSurv = calcSurvivability(state.maxHpStat, state.def ?? 0);
+  function calcItemSurvDelta(item, ctx = state) {
+    if (!ctx.maxHpStat || !item.eqBaseStats || !item.ownBaseStats) return null;
+    const curSurv = calcSurvivability(ctx.maxHpStat, ctx.def ?? 0);
     if (!curSurv) return null;
-    const curAllStats   = state.allStats ?? 0;
+    const curAllStats   = ctx.allStats ?? 0;
     const allStatsDelta = (item.ownBaseStats.allStats ?? 0) - (item.eqBaseStats.allStats ?? 0);
     const hpDelta       = (item.ownBaseStats.hp  ?? 0) - (item.eqBaseStats.hp  ?? 0);
     const defDelta      = (item.ownBaseStats.def ?? 0) - (item.eqBaseStats.def ?? 0);
-    const baseHP  = state.maxHpStat / (1 + curAllStats / 100);
-    const baseDEF = (state.def ?? 0) / (1 + curAllStats / 100);
+    const baseHP  = ctx.maxHpStat / (1 + curAllStats / 100);
+    const baseDEF = (ctx.def ?? 0) / (1 + curAllStats / 100);
     const newHP   = (baseHP  + hpDelta)  * (1 + (curAllStats + allStatsDelta) / 100);
     const newDEF  = (baseDEF + defDelta) * (1 + (curAllStats + allStatsDelta) / 100);
     const newSurv = calcSurvivability(newHP, newDEF);
@@ -2047,19 +2230,19 @@
     </div>`;
   }
 
-  function calcItemManaDelta(item) {
+  function calcItemManaDelta(item, ctx = state) {
     if (!item.eqBaseStats || !item.ownBaseStats) return null;
-    const curAllStats   = state.allStats ?? 0;
+    const curAllStats   = ctx.allStats ?? 0;
     const allStatsDelta = (item.ownBaseStats.allStats  ?? 0) - (item.eqBaseStats.allStats  ?? 0);
     const manaDelta     = (item.ownBaseStats.mana      ?? 0) - (item.eqBaseStats.mana      ?? 0);
     const mregenDelta   = (item.ownBaseStats.manaRegen ?? 0) - (item.eqBaseStats.manaRegen ?? 0);
     if (manaDelta === 0 && mregenDelta === 0 && allStatsDelta === 0) return null;
-    const baseMana   = (state.maxManaStat ?? 0) / (1 + curAllStats / 100);
-    const baseMRegen = (state.manaRegen  ?? 0)  / (1 + curAllStats / 100);
+    const baseMana   = (ctx.maxManaStat ?? 0) / (1 + curAllStats / 100);
+    const baseMRegen = (ctx.manaRegen  ?? 0)  / (1 + curAllStats / 100);
     const newMana    = (baseMana   + manaDelta)   * (1 + (curAllStats + allStatsDelta) / 100);
     const newMRegen  = (baseMRegen + mregenDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-    const dMana   = newMana   - (state.maxManaStat ?? 0);
-    const dMRegen = newMRegen - (state.manaRegen   ?? 0);
+    const dMana   = newMana   - (ctx.maxManaStat ?? 0);
+    const dMRegen = newMRegen - (ctx.manaRegen   ?? 0);
     if (Math.abs(dMana) < 0.5 && Math.abs(dMRegen) < 0.05) return null;
     return { dMana, dMRegen };
   }
@@ -2083,12 +2266,12 @@
     return html;
   }
 
-  // Compact top-right corner: DPS, EHP, combined Mana score (pool + regen × 30)
-  function _itemDeltasCornerHtml(item) {
+  // Compact top-right corner: DPS, EHP, combined Mana score (pool + regen × 3)
+  function _itemDeltasCornerHtml(item, ctx = state) {
     const lines = [];
 
-    const dpsDelta = calcItemDpsDelta(item);
-    const curDPS   = calcDPS();
+    const dpsDelta = calcItemDpsDelta(item, ctx);
+    const curDPS   = calcDPS(ctx);
     if (dpsDelta != null && curDPS) {
       const pct  = (dpsDelta / curDPS) * 100;
       const sign = dpsDelta >= 0 ? "+" : "";
@@ -2096,8 +2279,8 @@
       lines.push(`<span style="color:${col};white-space:nowrap;">DPS ${sign}${Math.round(dpsDelta)} <span style="opacity:.55;font-size:9px;">(${sign}${pct.toFixed(1)}%)</span></span>`);
     }
 
-    const survDelta = calcItemSurvDelta(item);
-    const curSurv   = calcSurvivability(state.maxHpStat, state.def ?? 0);
+    const survDelta = calcItemSurvDelta(item, ctx);
+    const curSurv   = calcSurvivability(ctx.maxHpStat, ctx.def ?? 0);
     if (survDelta != null && curSurv && Math.abs(survDelta) >= 1) {
       const pct  = (survDelta / curSurv) * 100;
       const sign = survDelta >= 0 ? "+" : "";
@@ -2105,7 +2288,7 @@
       lines.push(`<span style="color:${col};white-space:nowrap;">EHP ${sign}${Math.round(survDelta)} <span style="opacity:.55;font-size:9px;">(${sign}${pct.toFixed(1)}%)</span></span>`);
     }
 
-    const manaRes = calcItemManaDelta(item);
+    const manaRes = calcItemManaDelta(item, ctx);
     if (manaRes) {
       const score = manaRes.dMana + manaRes.dMRegen * 3;
       if (Math.abs(score) >= 1) {
@@ -2119,11 +2302,11 @@
     return `<div class="sg-item-deltas">${lines.join("")}</div>`;
   }
 
-  function renderItemCard(item) {
+  function renderItemCard(item, ctx = state) {
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey);
+    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey, ctx);
     const dispRec   = adjResult?.rec ?? item.rec;
     const bumpIcon  = adjResult?.mode === "defensive" ? "🛡" : "🗡";
     const bumpCol   = adjResult?.mode === "defensive" ? "#60a5fa" : "#f97316";
@@ -2160,7 +2343,7 @@
           <div class="sg-badges">${badges}</div>
           ${item.diffs.length ? `<div style="margin-top:3px;">${diffsHtml}</div>` : ""}
         </div>
-        ${_itemDeltasCornerHtml(item)}
+        ${_itemDeltasCornerHtml(item, ctx)}
       </div>
       ${filterTagsHtml(item)}
     </div>`;
@@ -2170,7 +2353,7 @@
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey);
+    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey, selfCtx());
     const _btIcon  = adjResult?.mode === "defensive" ? "🛡" : "🗡";
     const _btCol   = adjResult ? (adjResult.bump > 0 ? (adjResult.mode === "defensive" ? "#60a5fa" : "#f97316") : "#94a3b8") : "";
     const _btLabel = adjResult?.mode === "defensive" ? "EHP" : "DPS";
@@ -2205,7 +2388,7 @@
         ${filterTagsHtml(item)}
       </div>
       <div class="sg-cat-item-right">
-        ${_itemDeltasCornerHtml(item)}
+        ${_itemDeltasCornerHtml(item, selfCtx())}
         <span class="sg-slot-pill">${esc(item.slotType)}</span>
         <span class="sg-badge sg-badge-shard">💎 ${item.shards}</span>
       </div>
@@ -2277,7 +2460,7 @@
         </div>
         <div class="sg-cat-body${isOpen ? "" : " collapsed"}">
           ${topItems.length
-            ? topItems.map(item => renderItemCard(item)).join("")
+            ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile(profile))).join("")
             : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is a Top Pick for ${esc(profile.username)} right now.</div>`}
         </div>
       </div>`;
@@ -2331,6 +2514,7 @@
         teamProfiles[playerId] = {
           playerId, username, levelText,
           equippedMap: buildEquippedMap(data.equipped),
+          charStats:   parseInspectCharStats(data),
           filterKey: teamProfiles[playerId]?.filterKey ?? state.activeFilterKey,
           savedAt: Date.now(),
         };
@@ -2396,6 +2580,7 @@
     else                                  body.innerHTML = renderStats();
 
     if (state.activeTab==="filters") {
+      body.querySelector(".sg-help-box")?.addEventListener("toggle", e => { filterHelpOpen = e.target.open; });
       body.querySelectorAll(".sg-filter-row").forEach((row) => {
         row.addEventListener("click", (e) => {
           if (e.target.closest("button")) return;
@@ -2424,7 +2609,7 @@
           e.stopPropagation();
           const key = btn.dataset.edit;
           const fc  = state.filters.get(key);
-          state.filterEdit = { key, name:key, stats:new Set(fc?.stats), multiBonus:{...fc?.multiBonus} };
+          state.filterEdit = { key, name:key, stats:new Set(fc?.stats), preferredStats:new Set(fc?.preferredStats), multiBonus:{...fc?.multiBonus} };
           render();
         });
       });
@@ -2445,7 +2630,7 @@
         const newName = (document.getElementById("sgFeName")?.value||fe.key).trim();
         const oldFC   = state.filters.get(fe.key);
         if (newName!==fe.key) state.filters.delete(fe.key);
-        state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus));
+        state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus, [...(fe.preferredStats ?? [])], oldFC?.mode ?? "defensive"));
         if (state.activeFilterKey===fe.key) {
           state.activeFilterKey = newName;
           localStorage.setItem("sgActiveFilter", newName);
@@ -2500,7 +2685,7 @@
       document.getElementById("sgFeAdd")?.addEventListener("click", () => {
         const name = `Filter ${state.filters.size+1}`;
         state.filters.set(name, mkFC([]));
-        state.filterEdit = { key:name, name, stats:new Set(), multiBonus:{} };
+        state.filterEdit = { key:name, name, stats:new Set(), preferredStats:new Set(), multiBonus:{} };
         saveFilters(); render();
       });
       body.querySelectorAll("[data-preset]").forEach((btn) => {
@@ -2615,7 +2800,8 @@
 
   function boot() { loadStats(); installUI(); setupTooltipObserver(); setupInspectObserver(); setupCharViewObserver(); tick(); setInterval(tick, 1000); }
     return {
-      init(app) { boot(); },
+      ...definition,
+      init(app) { _moduleApp = app; boot(); },
       render() {}
     };
   }
@@ -2625,8 +2811,8 @@
     id:          'loot-helper',
     name:        '⚡ Loot Helper',
     icon:        '⚡',
-    description: 'Stats, DPS, gear comparison, roll quality, multi-filter scoring.',
-    version:     '8.20.0',
+    description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
+    version:     '8.24.0',
     category:    'fighter',
   });
 })();
