@@ -996,7 +996,7 @@
           </label>
         </div>
 
-        ${[...app.modules.values()].map((module) => renderModuleRow(app, module)).join("")}
+        ${(ModuleLoader._loadCachedManifest()?.modules || []).map((entry) => renderModuleRow(app, entry)).join("")}
 
         <button type="button" class="vim-btn vim-btn-primary" data-action="run-scripts">Run Scripts</button>
       `;
@@ -1204,25 +1204,26 @@
     },
   };
 
-  function renderModuleRow(app, module) {
-    const state = getPanelState(app, module.id);
+  function renderModuleRow(app, entry) {
+    const state = getPanelState(app, entry.id);
 
     if (!state) {
       return "";
     }
 
-    const status = !state.enabled ? "Off" : state.open ? "Open" : "In tray";
-    const statusClass = state.enabled ? "vim-good" : "vim-muted";
+    const disabledBadge = entry.enabled === false
+      ? '<div class="vim-muted" style="font-size:10px;margin-top:2px;">Disabled in manifest</div>'
+      : '';
 
     return `
     <div class="vim-row">
       <div class="vim-row-main">
-        <div class="vim-row-title">${escapeHtml(module.icon)} ${escapeHtml(module.name)}</div>
-        <div class="vim-muted">${escapeHtml(module.description)}</div>
-        <div class="${statusClass}">${status}</div>
+        <div class="vim-row-title">${escapeHtml(entry.icon || '')} ${escapeHtml(entry.name)}</div>
+        <div class="vim-muted">${escapeHtml(entry.description || '')}</div>
+        ${disabledBadge}
       </div>
       <label class="vim-switch-row">
-        <input type="checkbox" data-module-toggle="${escapeHtml(module.id)}" ${state.enabled ? "checked" : ""} />
+        <input type="checkbox" data-module-toggle="${escapeHtml(entry.id)}" ${state.enabled ? "checked" : ""} />
         <span>Enabled</span>
       </label>
     </div>
@@ -1607,13 +1608,14 @@
     _bodyId: `${CONFIG.appId}-manager-body`,
 
     init(app) {
-      app.events.on('loader:manifest',        () => this._refresh(app));
-      app.events.on('loader:module:loaded',   () => this._refresh(app));
-      app.events.on('loader:module:failed',   () => this._refresh(app));
-      app.events.on('loader:module:skipped',  () => this._refresh(app));
-      app.events.on('loader:module:reloaded', () => this._refresh(app));
-      app.events.on('loader:complete',        () => this._refresh(app));
-      app.events.on('loader:error',           () => this._refresh(app));
+      const refresh = () => WindowManager.renderMaster(app);
+      app.events.on('loader:manifest',        refresh);
+      app.events.on('loader:module:loaded',   refresh);
+      app.events.on('loader:module:failed',   refresh);
+      app.events.on('loader:module:skipped',  refresh);
+      app.events.on('loader:module:reloaded', refresh);
+      app.events.on('loader:complete',        refresh);
+      app.events.on('loader:error',           refresh);
     },
 
     _refresh(app) {
@@ -1737,7 +1739,7 @@
       [current[idx], current[newIdx]] = [current[newIdx], current[idx]];
       app.settings.moduleOrder[catId] = current;
       PanelStorage.save(app.settings);
-      this._refresh(app);
+      WindowManager.renderMaster(app);
     },
 
     _attachHandlers(app, body) {
