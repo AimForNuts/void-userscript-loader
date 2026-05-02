@@ -139,11 +139,10 @@
     fan:      new Set(["fan"]),
   };
   // Weapon families that cannot equip a shield
-  const NO_SHIELD_WEAPONS = new Set(["bow","crossbow","harp","fan","staff","wand","scepter","scythe"]);
-  // Weapon families that cannot wear heavy (plate) armor
-  const NO_HEAVY_ARMOR_WEAPONS = new Set(["bow","crossbow","harp","fan","staff","wand","scepter","scythe"]);
-  // Item types classified as heavy/plate armor
-  const HEAVY_ARMOR_TYPES = new Set(["chest","gauntlets","greaves","sabatons","helmet"]);
+  const NO_SHIELD_WEAPONS    = new Set(["bow","crossbow","harp","fan","staff","wand","scepter","scythe"]);
+  // Item types the game tags as "Heavy" armor — only spear users can equip these
+  const HEAVY_ARMOR_TYPES    = new Set(["chest","gauntlets","greaves","sabatons","helmet"]);
+  const CAN_WEAR_HEAVY_ARMOR = new Set(["spear"]);
 
   const CATEGORIES = [
     { key:"top",  label:"✅ Top Pick", cls:"rec-top"  },
@@ -613,7 +612,7 @@
         if (!allowed.has(chatItemType)) chatRestricted = true;
       } else if (slot === "Shield" && NO_SHIELD_WEAPONS.has(chatEqWeapon.type)) {
         chatRestricted = true;
-      } else if (HEAVY_ARMOR_TYPES.has(chatItemType) && NO_HEAVY_ARMOR_WEAPONS.has(chatEqWeapon.type)) {
+      } else if (HEAVY_ARMOR_TYPES.has(chatItemType) && !CAN_WEAR_HEAVY_ARMOR.has(chatEqWeapon.type)) {
         chatRestricted = true;
       }
       if (chatRestricted && (chatCat === "top" || chatCat === "up")) {
@@ -1103,7 +1102,7 @@
         if (!allowed.has(item.type)) classRestricted = true;
       } else if (slotType === "Shield" && NO_SHIELD_WEAPONS.has(eqWeapon.type)) {
         classRestricted = true;
-      } else if (HEAVY_ARMOR_TYPES.has(item.type) && NO_HEAVY_ARMOR_WEAPONS.has(eqWeapon.type)) {
+      } else if (HEAVY_ARMOR_TYPES.has(item.type) && !CAN_WEAR_HEAVY_ARMOR.has(eqWeapon.type)) {
         classRestricted = true;
       }
     }
