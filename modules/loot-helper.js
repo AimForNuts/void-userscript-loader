@@ -1520,8 +1520,9 @@
    * UI SETUP
    **************************************************************************/
 
-  let panelEl    = null;
-  let _moduleApp = null;
+  let panelEl        = null;
+  let _moduleApp     = null;
+  let filterHelpOpen = false;
 
   function _panelShellHtml() {
     return `
@@ -1762,7 +1763,7 @@
     const fe = state.filterEdit;
     let html = `<div class="sg-sec">
       <div class="sg-lbl">Filters</div>
-      <details class="sg-help-box">
+      <details class="sg-help-box"${filterHelpOpen ? " open" : ""}>
         <summary class="sg-help-summary">ℹ️ How filters work</summary>
         <div class="sg-help-body">
           <b>What is a filter?</b> A filter scores every bag item by comparing its base stats to your currently equipped item in the same slot. The active filter (blue dot) drives all item labels and highlights.<br><br>
@@ -2579,6 +2580,7 @@
     else                                  body.innerHTML = renderStats();
 
     if (state.activeTab==="filters") {
+      body.querySelector(".sg-help-box")?.addEventListener("toggle", e => { filterHelpOpen = e.target.open; });
       body.querySelectorAll(".sg-filter-row").forEach((row) => {
         row.addEventListener("click", (e) => {
           if (e.target.closest("button")) return;
