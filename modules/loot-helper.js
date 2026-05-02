@@ -2753,6 +2753,7 @@
 
   function boot() { loadStats(); installUI(); setupTooltipObserver(); setupInspectObserver(); setupCharViewObserver(); tick(); setInterval(tick, 1000); }
     return {
+      ...definition,
       init(app) { _moduleApp = app; boot(); },
       render() {}
     };
