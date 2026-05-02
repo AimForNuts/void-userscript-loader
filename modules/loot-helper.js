@@ -2080,7 +2080,7 @@
 
   function renderMarketItem(item) {
     const color    = rarityColor(item.rarity);
-    const activeFC = state.filters.get(state.activeFilterKey) ?? mkFC([]);
+    const activeFC = state.filters.get(marketCtxFilterKey()) ?? mkFC([]);
     const forgeStr = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const priceStr = item.price >= 1_000_000 ? (item.price/1_000_000).toFixed(1)+"M"
                    : item.price >= 1_000     ? Math.round(item.price/1_000)+"K"
@@ -2105,7 +2105,7 @@
         <div class="sg-diffs">${chips||'<span style="color:#4b5563;font-size:10px;">No diffs vs equipped</span>'}</div>
       </div>
       <div class="sg-cat-item-right">
-        ${_itemDeltasCornerHtml(item, selfCtx())}
+        ${_itemDeltasCornerHtml(item, marketCtx())}
         <span class="sg-slot-pill">${esc(item.slotType)}</span>
         <span class="sg-badge sg-badge-shard" style="color:#fde68a;border-color:#78350f;background:rgba(253,230,138,.1);">💰 ${priceStr}</span>
       </div>
