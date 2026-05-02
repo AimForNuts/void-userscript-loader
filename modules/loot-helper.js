@@ -1423,6 +1423,20 @@
     }
     .sg-icon-btn:hover { color:#e8eefc; background:rgba(255,255,255,.06); }
 
+    .sg-help-box {
+      border:1px solid rgba(255,255,255,.07); border-radius:6px;
+      margin-bottom:8px; background:rgba(255,255,255,.02);
+    }
+    .sg-help-summary {
+      cursor:pointer; padding:5px 8px; font-size:11px; color:#64748b;
+      list-style:none; user-select:none; outline:none;
+    }
+    .sg-help-summary::-webkit-details-marker { display:none; }
+    .sg-help-body { padding:4px 10px 8px; font-size:10px; color:#6b7280; line-height:1.6; }
+    .sg-help-body b { color:#94a3b8; }
+    .sg-help-body table { border-collapse:collapse; width:100%; margin:3px 0; }
+    .sg-help-body td { padding:1px 6px 1px 0; vertical-align:top; }
+    .sg-help-body td:first-child { white-space:nowrap; color:#94a3b8; font-weight:600; }
     .sg-filter-edit {
       background:#0a1220; border:1px solid rgba(59,130,246,.3);
       border-radius:8px; padding:8px; margin-top:6px;
@@ -1748,19 +1762,41 @@
     const fe = state.filterEdit;
     let html = `<div class="sg-sec">
       <div class="sg-lbl">Filters</div>
+      <details class="sg-help-box">
+        <summary class="sg-help-summary">ℹ️ How filters work</summary>
+        <div class="sg-help-body">
+          <b>What is a filter?</b> A filter scores every bag item by comparing its base stats to your currently equipped item in the same slot. The active filter (blue dot) drives all item labels and highlights.<br><br>
+          <b>Stat tiers — per changed stat:</b>
+          <table>
+            <tr><td>★ Preferred</td><td>+4 / −4 per stat</td></tr>
+            <tr><td>♥ Liked</td><td>+2 / −2 per stat</td></tr>
+            <tr><td>(untracked)</td><td>+0.5 / −0.5 per stat</td></tr>
+          </table>
+          <b>Result labels</b> (Top/Interesting also require ≥ 2 tracked stats improved, OR a tracked stat was multi-rolled):
+          <table>
+            <tr><td>✅ Top Pick</td><td>score ≥ 4</td></tr>
+            <tr><td>👍 Interesting</td><td>score ≥ 1</td></tr>
+            <tr><td>↔ Neutral</td><td>score ≥ −1</td></tr>
+            <tr><td>💾 Salvage</td><td>score &lt; −1</td></tr>
+          </table>
+          <b>Mode (🗡 / 🛡)</b> adjusts the score by the item's DPS (Aggressive) or EHP (Defensive) change vs. your equipped item: &gt;5% → ±2, 2–5% → ±1.<br><br>
+          <b>Multi-roll bonus</b> adds a flat score when a multi-rolled item has a specific stat — set per stat in the ✏ edit panel.<br><br>
+          <b>Roll quality cap</b>: items with median roll quality &lt; 75% are capped at Neutral; weapons with ATK quality &lt; 75% are capped at Salvage.
+        </div>
+      </details>
       <div class="sg-filter-list">`;
 
     for (const [key, fc] of state.filters) {
       const isActive  = key === state.activeFilterKey;
       const isEditing = fe?.key === key;
-      html += `<div class="sg-filter-row${isActive?" active":""}${fc.enabled?"":" disabled"}" data-fkey="${esc(key)}">
+      html += `<div class="sg-filter-row${isActive?" active":""}${fc.enabled?"":" disabled"}" data-fkey="${esc(key)}" title="${isActive?"Active filter — click another row to switch":"Click to set as active filter"}">
         <div class="sg-filter-dot"></div>
         <span class="sg-filter-name">${esc(key)}</span>
         <span class="sg-filter-statcount">${fc.stats.size + fc.preferredStats.size} stats${fc.preferredStats.size ? ` · ★${fc.preferredStats.size}` : ""}</span>
-        <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable":"Enable"}">${fc.enabled?"●":"○"}</button>
-        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive — DPS beeinflusst Bewertung (klicken für 🛡 Defensiv)":"🛡 Defensiv — EHP beeinflusst Bewertung (klicken für 🗡 Aggressiv)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
-        <button class="sg-icon-btn" data-edit="${esc(key)}">✏</button>
-        ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}">✗</button>`:""}
+        <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter (items won't be scored by this filter)":"Enable filter"}">${fc.enabled?"●":"○"}</button>
+        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts item score (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts item score (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
+        <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: choose which stats are Liked (♥ ±2) or Preferred (★ ±4)">✏</button>
+        ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}" title="Delete this filter">✗</button>`:""}
       </div>`;
       if (isEditing) {
         html += `<div class="sg-filter-edit">
@@ -1769,17 +1805,17 @@
             <button class="sg-btn" id="sgFeSave">Save</button>
             <button class="sg-btn" id="sgFeCancel">✗</button>
           </div>
-          <div style="font-size:10px;color:#64748b;margin:2px 0 4px;">Click to cycle: off → ♥ Liked (±2) → ★ Preferred (±4) → off</div>
+          <div style="font-size:10px;color:#64748b;margin:2px 0 4px;">Click to cycle: off → ♥ Liked (score ±2) → ★ Preferred (score ±4) → off · ★ on a double-rolled stat = always Interesting</div>
           <div class="sg-pref-grid">`;
         for (const def of STAT_DEFS) {
           const isPref  = fe.preferredStats.has(def.key);
           const isLiked = fe.stats.has(def.key);
           const cls     = isPref ? "sg-pref-chip preferred" : isLiked ? "sg-pref-chip active" : "sg-pref-chip";
           const lbl     = isPref ? `★ ${def.label}` : isLiked ? `♥ ${def.label}` : def.label;
-          html += `<button class="${cls}" data-estat="${esc(def.key)}">${esc(lbl)}</button>`;
+          html += `<button class="${cls}" data-estat="${esc(def.key)}" title="${isPref?`★ Preferred — scores ±4 per change`:isLiked?`♥ Liked — scores ±2 per change`:`Click to mark as Liked (♥)`}">${esc(lbl)}</button>`;
         }
         html += `</div>
-          <div style="font-size:10px;color:#64748b;margin:8px 0 4px;">Multi-roll bonus — click to cycle +0→+1→+2→+3:</div>
+          <div style="font-size:10px;color:#64748b;margin:8px 0 4px;">Multi-roll bonus — adds flat score when a multi-rolled item has this stat (click to cycle +0 → +1 → +2 → +3):</div>
           <div class="sg-mb-grid">`;
         for (const def of STAT_DEFS) {
           const val = fe.multiBonus[def.key] ?? 0;
@@ -1797,22 +1833,22 @@
       html += `<div class="sg-sec">
         <div class="sg-lbl">Init from Preset</div>
         <div class="sg-preset-row">`;
-      for (const name of Object.keys(FILTER_PRESETS)) {
-        html += `<button class="sg-btn" data-preset="${esc(name)}">${esc(name)}</button>`;
+      for (const [name, keys] of Object.entries(FILTER_PRESETS)) {
+        html += `<button class="sg-btn" data-preset="${esc(name)}" title="Create a new filter from the ${name} preset&#10;Stats: ${keys.join(', ')}">${esc(name)}</button>`;
       }
       html += `</div></div>`;
 
       const activeFC = state.filters.get(state.activeFilterKey) ?? mkFC([]);
       html += `<div class="sg-sec">
         <div class="sg-lbl">Stats — ${esc(state.activeFilterKey)}</div>
-        <div style="font-size:10px;color:#4b5563;margin-bottom:4px;">Click to cycle: off → ♥ Liked → ★ Preferred → off · ★ double-roll → always Upgrade</div>
+        <div style="font-size:10px;color:#4b5563;margin-bottom:4px;">Click to cycle: off → ♥ Liked (score ±2) → ★ Preferred (score ±4) → off · ★ on a double-rolled stat = always Interesting</div>
         <div class="sg-pref-grid">`;
       for (const def of STAT_DEFS) {
         const isPref  = activeFC.preferredStats.has(def.key);
         const isLiked = activeFC.stats.has(def.key);
         const cls     = isPref ? "sg-pref-chip preferred" : isLiked ? "sg-pref-chip active" : "sg-pref-chip";
         const lbl     = isPref ? `★ ${def.label}` : isLiked ? `♥ ${def.label}` : def.label;
-        html += `<button class="${cls}" data-qstat="${esc(def.key)}">${esc(lbl)}</button>`;
+        html += `<button class="${cls}" data-qstat="${esc(def.key)}" title="${isPref?`★ Preferred — scores ±4 per change`:isLiked?`♥ Liked — scores ±2 per change`:`Click to mark as Liked (♥)`}">${esc(lbl)}</button>`;
       }
       html += `</div></div>`;
     }
