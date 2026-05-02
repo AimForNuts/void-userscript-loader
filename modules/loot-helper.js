@@ -384,6 +384,40 @@
     return deriveCharStatsFromProfile({ equippedMap: state.equipped, levelText: String(state.level ?? "") });
   }
 
+  function marketCtx() {
+    if (!state.marketCtxPlayerId) return selfCtx();
+    const profile = teamProfiles[state.marketCtxPlayerId];
+    if (!profile) return selfCtx();
+    return deriveCharStatsFromProfile(profile);
+  }
+
+  function marketCtxFilterKey() {
+    if (!state.marketCtxPlayerId) return state.activeFilterKey;
+    const profile = teamProfiles[state.marketCtxPlayerId];
+    return profile?.filterKey ?? state.activeFilterKey;
+  }
+
+  function rebuildMarketItems() {
+    if (!state.marketRawData.length) { state.marketItems = []; return; }
+
+    let equippedMap, filterKey;
+    if (state.marketCtxPlayerId && teamProfiles[state.marketCtxPlayerId]) {
+      const profile = teamProfiles[state.marketCtxPlayerId];
+      equippedMap = profile.equippedMap;
+      filterKey   = profile.filterKey ?? state.activeFilterKey;
+    } else {
+      state.marketCtxPlayerId = null;   // reset if profile was deleted
+      equippedMap = state.equipped;
+      filterKey   = state.activeFilterKey;
+    }
+
+    state.marketItems = state.marketRawData.map(r =>
+      ({ ..._buildBagItem(r.item, equippedMap, filterKey),
+         listingId: r.listingId, price: r.price,
+         sellerName: r.sellerName, itemTier: r.itemTier, isFutureTier: r.isFutureTier })
+    );
+  }
+
   function buildEquippedMap(equippedArray) {
     const map = {};
     for (const item of (equippedArray || [])) {
@@ -1136,11 +1170,10 @@
   function readMarketListings() {
     const mpPanel = document.querySelector(".mp-panel");
     state.marketVisible = !!mpPanel;
-    if (!mpPanel) { state.marketItems = []; return; }
+    if (!mpPanel) { state.marketRawData = []; state.marketItems = []; return; }
 
-    // T1=Lv0, T2=Lv10, T3=Lv20 … max wearable tier from current level
-    const mwt   = Math.floor((state.level ?? 0) / 10) + 1;
-    const items = [];
+    const mwt  = Math.floor((state.level ?? 0) / 10) + 1;
+    const raws = [];
 
     mpPanel.querySelectorAll(".mp-listing").forEach(el => {
       const fkey = Object.keys(el).find(k => k.startsWith("__reactFiber"));
@@ -1159,12 +1192,13 @@
       };
 
       const itemTier     = raw.itemTier ?? 1;
-      const isFutureTier = (itemTier - mwt) > 1;   // 2+ tiers ahead = not yet relevant
-      const built        = _buildBagItem(item, state.equipped);
-      items.push({ ...built, listingId: listing.id, price: listing.price, sellerName: listing.sellerName, itemTier, isFutureTier });
+      const isFutureTier = (itemTier - mwt) > 1;
+      raws.push({ item, listingId: listing.id, price: listing.price,
+                  sellerName: listing.sellerName, itemTier, isFutureTier });
     });
 
-    state.marketItems = items;
+    state.marketRawData = raws;
+    rebuildMarketItems();
   }
 
   function applyMarketBadges() {
