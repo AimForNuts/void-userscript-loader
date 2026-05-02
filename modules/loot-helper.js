@@ -400,22 +400,27 @@
   function rebuildMarketItems() {
     if (!state.marketRawData.length) { state.marketItems = []; return; }
 
-    let equippedMap, filterKey;
+    let equippedMap, filterKey, ctxLevel;
     if (state.marketCtxPlayerId && teamProfiles[state.marketCtxPlayerId]) {
       const profile = teamProfiles[state.marketCtxPlayerId];
       equippedMap = profile.equippedMap;
       filterKey   = profile.filterKey ?? state.activeFilterKey;
+      ctxLevel    = parseInt((profile.levelText ?? "").replace(/\D/g, ""), 10) || 0;
     } else {
-      state.marketCtxPlayerId = null;   // reset if profile was deleted
+      state.marketCtxPlayerId = null;
       equippedMap = state.equipped;
       filterKey   = state.activeFilterKey;
+      ctxLevel    = state.level ?? 0;
     }
 
+    const mwt = Math.floor(ctxLevel / 10) + 1;
     state.marketItems = state.marketRawData.map(r =>
       ({ ..._buildBagItem(r.item, equippedMap, filterKey),
          listingId: r.listingId, price: r.price,
-         sellerName: r.sellerName, itemTier: r.itemTier, isFutureTier: r.isFutureTier })
+         sellerName: r.sellerName, itemTier: r.itemTier,
+         isFutureTier: (r.itemTier - mwt) > 1 })
     );
+    state.marketCtxMwt = mwt;
   }
 
   function buildEquippedMap(equippedArray) {
@@ -462,6 +467,7 @@
     highlightCats: new Set(),
     marketItems: [], marketRawData: [], marketVisible: false, marketHideFuture: false,
     marketCtxPlayerId: null,
+    marketCtxMwt: 1,
   };
 
   /**************************************************************************
@@ -2012,7 +2018,7 @@
    **************************************************************************/
 
   function _marketCtxSelectorHtml() {
-    const profiles = Object.values(teamProfiles);
+    const profiles = Object.values(teamProfiles).sort((a, b) => b.savedAt - a.savedAt);
     if (!profiles.length) return "";
     const opts = profiles.map(p => {
       const eqWeapon = Object.values(p.equippedMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
@@ -2038,7 +2044,7 @@
       return `<div class="sg-hint" style="padding:6px 10px;">No equipped gear cached — open inventory first for diffs.</div>`;
     }
 
-    const mwt         = Math.floor((state.level ?? 0) / 10) + 1;
+    const mwt         = state.marketCtxMwt;
     const nowItems    = state.marketItems.filter(i => !i.isFutureTier);
     const futureItems = state.marketItems.filter(i =>  i.isFutureTier);
     const topItems    = nowItems.filter(i => i.cat === "top");
