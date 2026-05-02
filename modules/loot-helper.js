@@ -384,6 +384,45 @@
     return deriveCharStatsFromProfile({ equippedMap: state.equipped, levelText: String(state.level ?? "") });
   }
 
+  function marketCtx() {
+    if (!state.marketCtxPlayerId) return selfCtx();
+    const profile = teamProfiles[state.marketCtxPlayerId];
+    if (!profile) return selfCtx();
+    return deriveCharStatsFromProfile(profile);
+  }
+
+  function marketCtxFilterKey() {
+    if (!state.marketCtxPlayerId) return state.activeFilterKey;
+    const profile = teamProfiles[state.marketCtxPlayerId];
+    return profile?.filterKey ?? state.activeFilterKey;
+  }
+
+  function rebuildMarketItems() {
+    if (!state.marketRawData.length) { state.marketItems = []; return; }
+
+    let equippedMap, filterKey, ctxLevel;
+    if (state.marketCtxPlayerId && teamProfiles[state.marketCtxPlayerId]) {
+      const profile = teamProfiles[state.marketCtxPlayerId];
+      equippedMap = profile.equippedMap;
+      filterKey   = profile.filterKey ?? state.activeFilterKey;
+      ctxLevel    = parseInt((profile.levelText ?? "").replace(/\D/g, ""), 10) || 0;
+    } else {
+      state.marketCtxPlayerId = null;
+      equippedMap = state.equipped;
+      filterKey   = state.activeFilterKey;
+      ctxLevel    = state.level ?? 0;
+    }
+
+    const mwt = Math.floor(ctxLevel / 10) + 1;
+    state.marketItems = state.marketRawData.map(r =>
+      ({ ..._buildBagItem(r.item, equippedMap, filterKey),
+         listingId: r.listingId, price: r.price,
+         sellerName: r.sellerName, itemTier: r.itemTier,
+         isFutureTier: (r.itemTier - mwt) > 1 })
+    );
+    state.marketCtxMwt = mwt;
+  }
+
   function buildEquippedMap(equippedArray) {
     const map = {};
     for (const item of (equippedArray || [])) {
@@ -426,7 +465,9 @@
     bagItems:[], bagItemsRaw:[], bagVisible:false,
     catOpen:{ top:true, up:true, neu:false, sal:false },
     highlightCats: new Set(),
-    marketItems: [], marketVisible: false, marketHideFuture: false,
+    marketItems: [], marketRawData: [], marketVisible: false, marketHideFuture: false,
+    marketCtxPlayerId: null,
+    marketCtxMwt: 1,
   };
 
   /**************************************************************************
@@ -1135,11 +1176,10 @@
   function readMarketListings() {
     const mpPanel = document.querySelector(".mp-panel");
     state.marketVisible = !!mpPanel;
-    if (!mpPanel) { state.marketItems = []; return; }
+    if (!mpPanel) { state.marketRawData = []; state.marketItems = []; return; }
 
-    // T1=Lv0, T2=Lv10, T3=Lv20 … max wearable tier from current level
-    const mwt   = Math.floor((state.level ?? 0) / 10) + 1;
-    const items = [];
+    const mwt  = Math.floor((state.level ?? 0) / 10) + 1;
+    const raws = [];
 
     mpPanel.querySelectorAll(".mp-listing").forEach(el => {
       const fkey = Object.keys(el).find(k => k.startsWith("__reactFiber"));
@@ -1158,12 +1198,13 @@
       };
 
       const itemTier     = raw.itemTier ?? 1;
-      const isFutureTier = (itemTier - mwt) > 1;   // 2+ tiers ahead = not yet relevant
-      const built        = _buildBagItem(item, state.equipped);
-      items.push({ ...built, listingId: listing.id, price: listing.price, sellerName: listing.sellerName, itemTier, isFutureTier });
+      const isFutureTier = (itemTier - mwt) > 1;
+      raws.push({ item, listingId: listing.id, price: listing.price,
+                  sellerName: listing.sellerName, itemTier, isFutureTier });
     });
 
-    state.marketItems = items;
+    state.marketRawData = raws;
+    rebuildMarketItems();
   }
 
   function applyMarketBadges() {
@@ -1976,6 +2017,21 @@
    * RENDER — Market Tab
    **************************************************************************/
 
+  function _marketCtxSelectorHtml() {
+    const profiles = Object.values(teamProfiles).sort((a, b) => b.savedAt - a.savedAt);
+    if (!profiles.length) return "";
+    const opts = profiles.map(p => {
+      const eqWeapon = Object.values(p.equippedMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
+      const icon     = eqWeapon ? (ITEM_ICONS[eqWeapon.type] ?? "⚔️") : "👤";
+      const sel      = state.marketCtxPlayerId === p.playerId ? " selected" : "";
+      return `<option value="${esc(p.playerId)}"${sel}>${icon} ${esc(p.username)}</option>`;
+    }).join("");
+    return `<select id="sgMktCtx" style="font-size:10px;background:#0f172a;color:#e8eefc;border:1px solid #1e293b;border-radius:4px;padding:1px 4px;cursor:pointer;">
+      <option value=""${!state.marketCtxPlayerId ? " selected" : ""}>👤 Me</option>
+      ${opts}
+    </select>`;
+  }
+
   function renderMarket() {
     if (!state.marketVisible) {
       return `<div class="sg-hint">Open the <strong>Market</strong><br>to scan listings.</div>`;
@@ -1983,27 +2039,30 @@
     if (!state.marketItems.length) {
       return `<div class="sg-hint">No gear listings visible.<br>Switch to Weapons / Armor / Jewelry.</div>`;
     }
-    if (!Object.keys(state.equipped).length) {
+    const ctxProfile = state.marketCtxPlayerId ? teamProfiles[state.marketCtxPlayerId] : null;
+    if (!ctxProfile && !Object.keys(state.equipped).length) {
       return `<div class="sg-hint" style="padding:6px 10px;">No equipped gear cached — open inventory first for diffs.</div>`;
     }
 
-    const mwt         = Math.floor((state.level ?? 0) / 10) + 1;
+    const mwt         = state.marketCtxMwt;
     const nowItems    = state.marketItems.filter(i => !i.isFutureTier);
     const futureItems = state.marketItems.filter(i =>  i.isFutureTier);
     const topItems    = nowItems.filter(i => i.cat === "top");
     const upItems     = nowItems.filter(i => i.cat === "up");
     const neuItems    = nowItems.filter(i => i.cat === "neu");
 
+    const ctxSelector = _marketCtxSelectorHtml();
     let html = `<div class="sg-gear-toolbar">
       <div style="display:flex;gap:6px;align-items:center;">
         <span style="color:#e8eefc;font-size:11px;font-weight:600;">${state.marketItems.length} listings</span>
         <span style="color:#4b5563;font-size:10px;">max T${mwt} (Lv${state.level??0})</span>
+        ${ctxSelector}
       </div>
       <div style="display:flex;gap:5px;align-items:center;">
         ${futureItems.length ? `<button class="sg-mode-btn${state.marketHideFuture?" active":""}" id="sgMktHideFuture"
           style="${state.marketHideFuture?"color:#6b7280;border-color:#374151;":""}"
           title="${state.marketHideFuture?"Show":"Hide"} future tier items">🔒 ${futureItems.length}</button>` : ""}
-        <span class="sg-cache-hint">· <span style="color:#3b82f6;">${esc(state.activeFilterKey||"—")}</span></span>
+        <span class="sg-cache-hint">· <span style="color:#3b82f6;">${esc(marketCtxFilterKey()||"—")}</span></span>
       </div>
     </div>`;
 
@@ -2045,7 +2104,7 @@
 
   function renderMarketItem(item) {
     const color    = rarityColor(item.rarity);
-    const activeFC = state.filters.get(state.activeFilterKey) ?? mkFC([]);
+    const activeFC = state.filters.get(marketCtxFilterKey()) ?? mkFC([]);
     const forgeStr = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const priceStr = item.price >= 1_000_000 ? (item.price/1_000_000).toFixed(1)+"M"
                    : item.price >= 1_000     ? Math.round(item.price/1_000)+"K"
@@ -2070,7 +2129,7 @@
         <div class="sg-diffs">${chips||'<span style="color:#4b5563;font-size:10px;">No diffs vs equipped</span>'}</div>
       </div>
       <div class="sg-cat-item-right">
-        ${_itemDeltasCornerHtml(item, selfCtx())}
+        ${_itemDeltasCornerHtml(item, marketCtx())}
         <span class="sg-slot-pill">${esc(item.slotType)}</span>
         <span class="sg-badge sg-badge-shard" style="color:#fde68a;border-color:#78350f;background:rgba(253,230,138,.1);">💰 ${priceStr}</span>
       </div>
@@ -2736,6 +2795,11 @@
         state.marketHideFuture = !state.marketHideFuture;
         render();
       });
+      body.querySelector("#sgMktCtx")?.addEventListener("change", e => {
+        state.marketCtxPlayerId = e.target.value || null;
+        rebuildMarketItems();
+        render();
+      });
     }
 
     if (state.activeTab==="team") {
@@ -2754,7 +2818,15 @@
         btn.addEventListener("click", e => {
           e.stopPropagation();
           const pid = btn.dataset.teamDel;
-          if (pid) { delete teamProfiles[pid]; saveTeamProfiles(); render(); }
+          if (pid) {
+            delete teamProfiles[pid];
+            if (state.marketCtxPlayerId === pid) {
+              state.marketCtxPlayerId = null;
+              rebuildMarketItems();
+            }
+            saveTeamProfiles();
+            render();
+          }
         });
       });
       body.querySelectorAll(".sg-team-fchip").forEach(btn => {
