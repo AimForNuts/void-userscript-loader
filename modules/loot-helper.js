@@ -426,7 +426,8 @@
     bagItems:[], bagItemsRaw:[], bagVisible:false,
     catOpen:{ top:true, up:true, neu:false, sal:false },
     highlightCats: new Set(),
-    marketItems: [], marketVisible: false, marketHideFuture: false,
+    marketItems: [], marketRawData: [], marketVisible: false, marketHideFuture: false,
+    marketCtxPlayerId: null,
   };
 
   /**************************************************************************
