@@ -1739,7 +1739,7 @@
       [current[idx], current[newIdx]] = [current[newIdx], current[idx]];
       app.settings.moduleOrder[catId] = current;
       PanelStorage.save(app.settings);
-      this._refresh(app);
+      WindowManager.renderMaster(app);
     },
 
     _attachHandlers(app, body) {
