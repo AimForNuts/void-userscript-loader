@@ -2011,6 +2011,21 @@
    * RENDER — Market Tab
    **************************************************************************/
 
+  function _marketCtxSelectorHtml() {
+    const profiles = Object.values(teamProfiles);
+    if (!profiles.length) return "";
+    const opts = profiles.map(p => {
+      const eqWeapon = Object.values(p.equippedMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
+      const icon     = eqWeapon ? (ITEM_ICONS[eqWeapon.type] ?? "⚔️") : "👤";
+      const sel      = state.marketCtxPlayerId === p.playerId ? " selected" : "";
+      return `<option value="${esc(p.playerId)}"${sel}>${icon} ${esc(p.username)}</option>`;
+    }).join("");
+    return `<select id="sgMktCtx" style="font-size:10px;background:#0f172a;color:#e8eefc;border:1px solid #1e293b;border-radius:4px;padding:1px 4px;cursor:pointer;">
+      <option value=""${!state.marketCtxPlayerId ? " selected" : ""}>👤 Me</option>
+      ${opts}
+    </select>`;
+  }
+
   function renderMarket() {
     if (!state.marketVisible) {
       return `<div class="sg-hint">Open the <strong>Market</strong><br>to scan listings.</div>`;
@@ -2018,7 +2033,8 @@
     if (!state.marketItems.length) {
       return `<div class="sg-hint">No gear listings visible.<br>Switch to Weapons / Armor / Jewelry.</div>`;
     }
-    if (!Object.keys(state.equipped).length) {
+    const ctxProfile = state.marketCtxPlayerId ? teamProfiles[state.marketCtxPlayerId] : null;
+    if (!ctxProfile && !Object.keys(state.equipped).length) {
       return `<div class="sg-hint" style="padding:6px 10px;">No equipped gear cached — open inventory first for diffs.</div>`;
     }
 
@@ -2029,16 +2045,18 @@
     const upItems     = nowItems.filter(i => i.cat === "up");
     const neuItems    = nowItems.filter(i => i.cat === "neu");
 
+    const ctxSelector = _marketCtxSelectorHtml();
     let html = `<div class="sg-gear-toolbar">
       <div style="display:flex;gap:6px;align-items:center;">
         <span style="color:#e8eefc;font-size:11px;font-weight:600;">${state.marketItems.length} listings</span>
         <span style="color:#4b5563;font-size:10px;">max T${mwt} (Lv${state.level??0})</span>
+        ${ctxSelector}
       </div>
       <div style="display:flex;gap:5px;align-items:center;">
         ${futureItems.length ? `<button class="sg-mode-btn${state.marketHideFuture?" active":""}" id="sgMktHideFuture"
           style="${state.marketHideFuture?"color:#6b7280;border-color:#374151;":""}"
           title="${state.marketHideFuture?"Show":"Hide"} future tier items">🔒 ${futureItems.length}</button>` : ""}
-        <span class="sg-cache-hint">· <span style="color:#3b82f6;">${esc(state.activeFilterKey||"—")}</span></span>
+        <span class="sg-cache-hint">· <span style="color:#3b82f6;">${esc(marketCtxFilterKey()||"—")}</span></span>
       </div>
     </div>`;
 
