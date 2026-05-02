@@ -23,21 +23,44 @@
     function getStoredAuthToken() {
       const stores = [localStorage, sessionStorage];
       const preferred = ['token', 'authToken', 'jwt', 'accessToken', 'voididle_token', 'voididle.auth', 'auth'];
+      const JWT_RE = /^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
+
+      function extractJwt(raw) {
+        raw = String(raw).trim();
+        if (JWT_RE.test(raw)) return raw;
+        if (/^Bearer\s+eyJ/.test(raw)) return raw.replace(/^Bearer\s+/i, '');
+        try {
+          const parsed = JSON.parse(raw);
+          for (const k of preferred) {
+            if (parsed?.[k] && /^eyJ/.test(String(parsed[k]))) return String(parsed[k]);
+          }
+        } catch {}
+        return null;
+      }
+
       for (const store of stores) {
         for (const key of preferred) {
           const val = store.getItem(key);
           if (!val) continue;
-          const raw = String(val).trim();
-          if (/^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(raw)) return raw;
-          if (/^Bearer\s+eyJ/.test(raw)) return raw.replace(/^Bearer\s+/i, '');
-          try {
-            const parsed = JSON.parse(raw);
-            for (const k of preferred) {
-              if (parsed?.[k] && /^eyJ/.test(String(parsed[k]))) return String(parsed[k]);
-            }
-          } catch {}
+          const jwt = extractJwt(val);
+          if (jwt) return jwt;
         }
       }
+
+      // Fallback: scan all storage keys for any JWT-shaped value (catches non-standard key names, e.g. Kiwi)
+      for (const store of stores) {
+        try {
+          for (let i = 0; i < store.length; i++) {
+            const key = store.key(i);
+            if (!key || preferred.includes(key)) continue;
+            const val = store.getItem(key);
+            if (!val) continue;
+            const jwt = extractJwt(val);
+            if (jwt) return jwt;
+          }
+        } catch {}
+      }
+
       return null;
     }
 
@@ -186,7 +209,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-02.1',
+    version: '2026-05-02.2',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();
