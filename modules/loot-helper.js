@@ -140,8 +140,6 @@
   };
   // Weapon families that cannot equip a shield
   const NO_SHIELD_WEAPONS    = new Set(["bow","crossbow","harp","fan","staff","wand","scepter","scythe"]);
-  // Item types the game tags as "Heavy" armor — only spear users can equip these
-  const HEAVY_ARMOR_TYPES    = new Set(["chest","gauntlets","greaves","sabatons","helmet"]);
   const CAN_WEAR_HEAVY_ARMOR = new Set(["spear"]);
 
   const CATEGORIES = [
@@ -535,13 +533,19 @@
       }
     });
 
-    return { rarity, slot, typePart, stats: ttStats, qualities: ttQualities };
+    // Read armorWeight from any element containing "Light Armor" or "Heavy Armor"
+    let armorWeight = null;
+    const allText = el.textContent ?? "";
+    if (/heavy\s*armor/i.test(allText)) armorWeight = "heavy";
+    else if (/light\s*armor/i.test(allText)) armorWeight = "light";
+
+    return { rarity, slot, typePart, stats: ttStats, qualities: ttQualities, armorWeight };
   }
 
   function injectChatComparison(el) {
     if (el.querySelector(".sg-chat-compare")) return;
 
-    const { rarity, slot, typePart, stats: ttStats, qualities: ttQualities } = parseChatTooltip(el);
+    const { rarity, slot, typePart, stats: ttStats, qualities: ttQualities, armorWeight } = parseChatTooltip(el);
     const div = document.createElement("div");
     div.className = "sg-chat-compare";
 
@@ -612,7 +616,7 @@
         if (!allowed.has(chatItemType)) chatRestricted = true;
       } else if (slot === "Shield" && NO_SHIELD_WEAPONS.has(chatEqWeapon.type)) {
         chatRestricted = true;
-      } else if (HEAVY_ARMOR_TYPES.has(chatItemType) && !CAN_WEAR_HEAVY_ARMOR.has(chatEqWeapon.type)) {
+      } else if (armorWeight === "heavy" && !CAN_WEAR_HEAVY_ARMOR.has(chatEqWeapon.type)) {
         chatRestricted = true;
       }
       if (chatRestricted && (chatCat === "top" || chatCat === "up")) {
@@ -1102,7 +1106,7 @@
         if (!allowed.has(item.type)) classRestricted = true;
       } else if (slotType === "Shield" && NO_SHIELD_WEAPONS.has(eqWeapon.type)) {
         classRestricted = true;
-      } else if (HEAVY_ARMOR_TYPES.has(item.type) && !CAN_WEAR_HEAVY_ARMOR.has(eqWeapon.type)) {
+      } else if (item.armorWeight === "heavy" && !CAN_WEAR_HEAVY_ARMOR.has(eqWeapon.type)) {
         classRestricted = true;
       }
     }
