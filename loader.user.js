@@ -996,7 +996,7 @@
           </label>
         </div>
 
-        ${(ModuleLoader._loadCachedManifest()?.modules || []).map((entry) => renderModuleRow(app, entry)).join("")}
+        ${(ModuleLoader._loadCachedManifest()?.modules || []).filter(entry => !entry.hidden).map((entry) => renderModuleRow(app, entry)).join("")}
 
         <button type="button" class="vim-btn vim-btn-primary" data-action="run-scripts">Run Scripts</button>
       `;
