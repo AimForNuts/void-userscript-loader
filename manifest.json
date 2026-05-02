@@ -96,7 +96,7 @@
     },
     {
       "id": "loot-helper",
-      "name": "⚡ Loot Helper",
+      "name": "Loot Helper",
       "icon": "⚡",
       "description": "Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/loot-helper.js",
