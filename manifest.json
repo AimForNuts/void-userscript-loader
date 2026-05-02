@@ -95,6 +95,17 @@
       "dependencies": ["core"]
     },
     {
+      "id": "loot-helper",
+      "name": "⚡ Loot Helper",
+      "icon": "⚡",
+      "description": "Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.",
+      "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/loot-helper.js",
+      "version": "8.22.0",
+      "category": "fighter",
+      "enabled": true,
+      "dependencies": ["core"]
+    },
+    {
       "id": "party-planner-debug",
       "name": "Party Planner Debug",
       "icon": "🔍",
