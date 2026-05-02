@@ -381,6 +381,12 @@
     };
   }
 
+  function selfCtx() {
+    if (state.atkPhys != null && state.atkSpeed != null) return state;
+    if (!Object.keys(state.equipped).length) return state;
+    return deriveCharStatsFromProfile({ equippedMap: state.equipped, levelText: String(state.level ?? "") });
+  }
+
   function buildEquippedMap(equippedArray) {
     const map = {};
     for (const item of (equippedArray || [])) {
@@ -1893,7 +1899,7 @@
       html += `<div class="sg-sec">
         <div class="sg-lbl">${esc(slot)}</div>
         <div class="sg-eq-label">Equipped: ${eqText}</div>
-        ${items.map(renderItemCard).join("")}
+        ${items.map(item => renderItemCard(item, selfCtx())).join("")}
       </div>`;
     }
     if (!hasAny) html += `<div class="sg-hint">No gear items in bag.</div>`;
@@ -2024,7 +2030,7 @@
         <div class="sg-diffs">${chips||'<span style="color:#4b5563;font-size:10px;">No diffs vs equipped</span>'}</div>
       </div>
       <div class="sg-cat-item-right">
-        ${_itemDeltasCornerHtml(item)}
+        ${_itemDeltasCornerHtml(item, selfCtx())}
         <span class="sg-slot-pill">${esc(item.slotType)}</span>
         <span class="sg-badge sg-badge-shard" style="color:#fde68a;border-color:#78350f;background:rgba(253,230,138,.1);">💰 ${priceStr}</span>
       </div>
@@ -2068,9 +2074,10 @@
   }
 
   // Returns score bump based on DPS% change: >5%→+2, >2%→+1, <-2%→-1, <-5%→-2
-  function _dpsScoreBump(item) {
-    const delta  = calcItemDpsDelta(item);
-    const curDPS = calcDPS();
+  function _dpsScoreBump(item, ctx) {
+    const c      = ctx ?? selfCtx();
+    const delta  = calcItemDpsDelta(item, c);
+    const curDPS = calcDPS(c);
     if (delta == null || !curDPS) return 0;
     const pct = (delta / curDPS) * 100;
     if (pct >  5) return  2;
@@ -2081,10 +2088,11 @@
   }
 
   // Returns score bump based on EHP% change: >5%→+2, >2%→+1, <-2%→-1, <-5%→-2
-  function _ehpScoreBump(item) {
-    const curSurv = calcSurvivability(state.maxHpStat, state.def ?? 0);
+  function _ehpScoreBump(item, ctx) {
+    const c       = ctx ?? selfCtx();
+    const curSurv = calcSurvivability(c.maxHpStat, c.def ?? 0);
     if (!curSurv) return 0;
-    const delta = calcItemSurvDelta(item);
+    const delta = calcItemSurvDelta(item, c);
     if (delta == null) return 0;
     const pct = (delta / curSurv) * 100;
     if (pct >  5) return  2;
@@ -2095,10 +2103,11 @@
   }
 
   // Returns { rec, cat, bump, mode } override when filter mode affects scoring, else null
-  function adjustedRec(item, fc, activeKey) {
-    if (!fc || fc.mode === "defensive" && !calcSurvivability(state.maxHpStat, state.def ?? 0)) return null;
-    const bump = fc.mode === "aggressive" ? _dpsScoreBump(item)
-               : fc.mode === "defensive"  ? _ehpScoreBump(item)
+  function adjustedRec(item, fc, activeKey, ctx) {
+    const c = ctx ?? selfCtx();
+    if (!fc || fc.mode === "defensive" && !calcSurvivability(c.maxHpStat, c.def ?? 0)) return null;
+    const bump = fc.mode === "aggressive" ? _dpsScoreBump(item, c)
+               : fc.mode === "defensive"  ? _ehpScoreBump(item, c)
                : 0;
     if (bump === 0) return null;
     const baseScore   = item.filterScores?.[activeKey] ?? item.prefScore ?? 0;
@@ -2260,7 +2269,7 @@
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey);
+    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey, ctx);
     const dispRec   = adjResult?.rec ?? item.rec;
     const bumpIcon  = adjResult?.mode === "defensive" ? "🛡" : "🗡";
     const bumpCol   = adjResult?.mode === "defensive" ? "#60a5fa" : "#f97316";
@@ -2307,7 +2316,7 @@
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey);
+    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey, selfCtx());
     const _btIcon  = adjResult?.mode === "defensive" ? "🛡" : "🗡";
     const _btCol   = adjResult ? (adjResult.bump > 0 ? (adjResult.mode === "defensive" ? "#60a5fa" : "#f97316") : "#94a3b8") : "";
     const _btLabel = adjResult?.mode === "defensive" ? "EHP" : "DPS";
@@ -2342,7 +2351,7 @@
         ${filterTagsHtml(item)}
       </div>
       <div class="sg-cat-item-right">
-        ${_itemDeltasCornerHtml(item)}
+        ${_itemDeltasCornerHtml(item, selfCtx())}
         <span class="sg-slot-pill">${esc(item.slotType)}</span>
         <span class="sg-badge sg-badge-shard">💎 ${item.shards}</span>
       </div>
