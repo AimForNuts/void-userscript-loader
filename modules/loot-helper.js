@@ -2753,6 +2753,575 @@
   }
 
   /**************************************************************************
+   * MAIL SEND TO PARTY
+   **************************************************************************/
+
+  const TEAM_SEND_STORAGE_KEY          = "sgMailSendLearnedEndpoint";
+  const TEAM_SEND_TEMPLATE_STORAGE_KEY = "sgMailSendLearnedItemTemplateV2";
+
+  function getRawItemById(itemId) {
+    return state.bagItemsRaw.find(raw => String(raw.id) === String(itemId)) || null;
+  }
+
+  function buildTeamSendPlan() {
+    const candidates = [];
+    for (const profile of Object.values(teamProfiles)) {
+      const eqMap      = profile.equippedMap || {};
+      const profFilter = profile.filterKey ?? state.activeFilterKey;
+      for (const raw of state.bagItemsRaw) {
+        const ev = _buildBagItem(raw, eqMap, profFilter);
+        if (ev.cat !== "top") continue;
+        if (!ev.id) continue;
+        candidates.push({ profile, item: ev, raw, score: Number(ev.prefScore || 0) });
+      }
+    }
+
+    candidates.sort((a, b) =>
+      b.score - a.score ||
+      (b.item.mrMedianQuality || 0) - (a.item.mrMedianQuality || 0) ||
+      String(a.profile.username || "").localeCompare(String(b.profile.username || ""))
+    );
+
+    const usedItems = new Set();
+    const plan = [];
+    for (const candidate of candidates) {
+      const itemKey = String(candidate.item.id);
+      if (usedItems.has(itemKey)) continue;
+      usedItems.add(itemKey);
+      plan.push(candidate);
+    }
+
+    plan.sort((a, b) =>
+      String(a.profile.username || "").localeCompare(String(b.profile.username || "")) || b.score - a.score
+    );
+    return plan;
+  }
+
+  function buildMailMessage(profile, item) {
+    const diffs = (item.diffs || [])
+      .filter(d => d.isUp)
+      .slice(0, 5)
+      .map(d => d.text)
+      .join(", ");
+    const why = diffs ? `Upgrade stats: ${diffs}` : "Loot Helper marked this as a Top Pick.";
+    return `Sent by Loot Helper. ${why}`;
+  }
+
+  function buildMailMessageForItems(profile, items) {
+    const list = (Array.isArray(items) ? items : [items]).filter(Boolean);
+    if (list.length <= 1) return buildMailMessage(profile, list[0]);
+    const names = list.slice(0, 12).map(item => compactItemLabel(item)).join(", ");
+    const more  = list.length > 12 ? `, +${list.length - 12} more` : "";
+    return `Sent by Loot Helper. Top Pick upgrades for ${profile?.username || "teammate"}: ${names}${more}`.slice(0, 500);
+  }
+
+  function getStoredMailTemplate() {
+    try { return JSON.parse(localStorage.getItem(TEAM_SEND_TEMPLATE_STORAGE_KEY) || "null"); } catch { return null; }
+  }
+
+  function _objHasItemishKey(obj) {
+    let found = false;
+    const walk = (v, key = "") => {
+      if (found || v == null) return;
+      if (/item|inventory|attachment/i.test(String(key))) found = true;
+      if (Array.isArray(v)) return v.slice(0, 3).forEach(x => walk(x, key));
+      if (typeof v === "object") Object.entries(v).forEach(([k, val]) => walk(val, k));
+    };
+    walk(obj);
+    return found;
+  }
+
+  function rememberMailEndpoint(url, bodyOrKeys = null, method = "POST") {
+    try {
+      const keys = Array.isArray(bodyOrKeys)
+        ? bodyOrKeys
+        : (bodyOrKeys && typeof bodyOrKeys === "object" ? Object.keys(bodyOrKeys) : []);
+      localStorage.setItem(TEAM_SEND_STORAGE_KEY, JSON.stringify({ url, method, bodyKeys: keys, savedAt: Date.now() }));
+      if (bodyOrKeys && typeof bodyOrKeys === "object" && _objHasItemishKey(bodyOrKeys)) {
+        localStorage.setItem(TEAM_SEND_TEMPLATE_STORAGE_KEY, JSON.stringify({ url, method, body: bodyOrKeys, savedAt: Date.now() }));
+      }
+    } catch {}
+  }
+
+  function addMailEndpointToAttempts(attempts, url, payload, method = "POST", learned = false) {
+    if (!url || attempts.some(a => a.url === url && JSON.stringify(a.body) === JSON.stringify(payload))) return;
+    attempts.push({ url, method, body: payload, learned });
+  }
+
+  function _rewriteLearnedMailPayload(templateBody, profile, item, subject, message) {
+    const recipientId   = profile.playerId;
+    const recipientName = profile.username;
+    const itemId        = item.id;
+
+    const rewrite = (value, key = "") => {
+      const k = String(key || "");
+      if (/^(recipientid|toplayerid|targetplayerid|receiverid|receiverplayerid|playerid|toid|userid)$/i.test(k)) return recipientId;
+      if (/^(recipientname|tousername|targetusername|receivername|toname|to)$/i.test(k)) return recipientName;
+      if (/^(itemid|iteminstanceid|inventoryitemid|attachmentitemid|attacheditemid)$/i.test(k)) return itemId;
+      if (/^(itemids|iteminstanceids|inventoryitemids)$/i.test(k)) return [itemId];
+      if (/^(quantity|qty|amount|count)$/i.test(k)) return 1;
+      if (/^(subject|title)$/i.test(k)) return subject;
+      if (/^(message|body|text|content)$/i.test(k)) return message;
+      if (Array.isArray(value)) {
+        if (/^(items|attachments|attacheditems|mailitems)$/i.test(k)) {
+          const first = value[0];
+          if (first && typeof first === "object") return [rewrite(first, k)];
+          return [itemId];
+        }
+        return value.map(v => rewrite(v, k));
+      }
+      if (value && typeof value === "object") {
+        const out = {};
+        for (const [childKey, childVal] of Object.entries(value)) out[childKey] = rewrite(childVal, childKey);
+        if (/^(items|attachments|attacheditems|mailitems)$/i.test(k) && !Object.keys(out).some(x => /item/i.test(x))) {
+          out.itemId   = itemId;
+          out.quantity = 1;
+        }
+        return out;
+      }
+      return value;
+    };
+    return rewrite(_cloneJson(templateBody));
+  }
+
+  function buildMailAttempts(profile, item) {
+    const subject       = `Gear upgrade: ${compactItemLabel(item)}`.slice(0, 80);
+    const message       = buildMailMessage(profile, item);
+    const recipientId   = profile.playerId;
+    const recipientName = profile.username;
+    const itemId        = item.id;
+    const attempts      = [];
+
+    const learnedTemplate = getStoredMailTemplate();
+    if (learnedTemplate?.url && learnedTemplate?.body) {
+      addMailEndpointToAttempts(attempts, learnedTemplate.url, _rewriteLearnedMailPayload(learnedTemplate.body, profile, item, subject, message), learnedTemplate.method || "POST", true);
+    }
+
+    [
+      ["/api/mail/send-item",  { recipientId, itemId, quantity: 1, subject, message }],
+      ["/api/mail/send-item",  { recipientName, itemId, quantity: 1, subject, message }],
+      ["/api/mail/sendItem",   { recipientId, itemId, quantity: 1, subject, message }],
+      ["/api/mail/item",       { toPlayerId: recipientId, itemId, quantity: 1, subject, message }],
+      ["/api/mail/items/send", { toPlayerId: recipientId, itemId, quantity: 1, subject, message }],
+      ["/api/mail/send",       { recipientId, subject, message, itemId, quantity: 1 }],
+      ["/api/mail/send",       { recipientId, subject, message, itemInstanceId: itemId, quantity: 1 }],
+      ["/api/mail/send",       { toPlayerId: recipientId, subject, body: message, itemId, quantity: 1 }],
+      ["/api/mail/send",       { toUsername: recipientName, subject, body: message, itemId, quantity: 1 }],
+      ["/api/mail/send",       { recipientId, subject, message, attachments: [{ itemId, quantity: 1 }] }],
+      ["/api/mail/send",       { toUsername: recipientName, subject, body: message, items: [{ itemId, quantity: 1 }] }],
+    ].forEach(([url, body]) => addMailEndpointToAttempts(attempts, url, body));
+
+    return attempts;
+  }
+
+  // ── DOM automation helpers ────────────────────────────────────────────────
+
+  function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+  async function waitForSelector(selector, timeoutMs = 5000, root = document) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const el = root.querySelector(selector);
+      if (el) return el;
+      await sleep(75);
+    }
+    throw new Error(`Timed out waiting for ${selector}`);
+  }
+
+  function clickDom(el) {
+    if (!el) throw new Error("Missing clickable element");
+    try { el.scrollIntoView({ block: "center", inline: "center" }); } catch {}
+    el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, view: window }));
+    el.dispatchEvent(new MouseEvent("mousedown",   { bubbles: true, cancelable: true, view: window }));
+    el.dispatchEvent(new MouseEvent("pointerup",   { bubbles: true, cancelable: true, view: window }));
+    el.dispatchEvent(new MouseEvent("mouseup",     { bubbles: true, cancelable: true, view: window }));
+    el.click();
+  }
+
+  function setReactValue(el, value) {
+    if (!el) throw new Error("Missing input element");
+    const proto  = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (setter) setter.call(el, String(value ?? ""));
+    else el.value = String(value ?? "");
+    try {
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: String(value ?? "") }));
+    } catch {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function findButtonByText(selector, text) {
+    const want = String(text || "").trim().toLowerCase();
+    return [...document.querySelectorAll(selector)].find(btn => String(btn.textContent || "").trim().toLowerCase() === want) || null;
+  }
+
+  async function waitUntil(predicate, timeout = 5000, interval = 80, label = "condition") {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      let ok = false;
+      try { ok = !!predicate(); } catch {}
+      if (ok) return true;
+      await sleep(interval);
+    }
+    throw new Error(`Timed out waiting for ${label}`);
+  }
+
+  function isDisabledLike(el) {
+    if (!el) return true;
+    return !!(el.disabled || el.getAttribute("aria-disabled") === "true" || /disabled/i.test(String(el.className || "")));
+  }
+
+  function isElementVisible(el) {
+    if (!el || !el.isConnected) return false;
+    const r  = el.getBoundingClientRect?.();
+    const st = getComputedStyle(el);
+    return !!r && r.width > 0 && r.height > 0 && st.display !== "none" && st.visibility !== "hidden" && st.opacity !== "0";
+  }
+
+  function normRecipientName(v) {
+    return String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  function getVisibleMailRecipientText(compose) {
+    const picker = compose?.querySelector?.(".mail-recipient-picker");
+    if (!picker) return "";
+    const input = picker.querySelector("input");
+    const clone = picker.cloneNode(true);
+    clone.querySelectorAll("input,textarea,button").forEach(n => n.remove());
+    return String(input?.value || clone.textContent || "").trim();
+  }
+
+  function getMailDropdownOptions(compose) {
+    const roots = [
+      ...(compose ? [...compose.querySelectorAll(".mail-dropdown")] : []),
+      ...document.querySelectorAll(".mail-dropdown"),
+      ...document.querySelectorAll('[role="listbox"], [role="menu"]'),
+    ].filter(Boolean);
+
+    const candidates = [];
+    for (const root of roots) {
+      const directItems = [...root.querySelectorAll(".mail-dropdown-item, button, [role='option'], [role='menuitem'], li")];
+      if (root.matches?.(".mail-dropdown-item, button, [role='option'], [role='menuitem'], li")) directItems.unshift(root);
+      if (directItems.length) candidates.push(...directItems);
+      else candidates.push(...root.querySelectorAll("div, span"));
+    }
+
+    return [...new Set(candidates)]
+      .filter(el => isElementVisible(el))
+      .map(el => {
+        const rawText      = String(el.textContent || el.getAttribute("title") || el.getAttribute("aria-label") || "").trim();
+        const text         = normRecipientName(rawText);
+        const usernameText = normRecipientName(rawText.replace(/\s+Lv\s*\d+\s*$/i, ""));
+        return { el, text, usernameText, rawText };
+      })
+      .filter(x => x.text);
+  }
+
+  function recipientAlreadySet(compose, recipientName) {
+    const want = normRecipientName(recipientName);
+    if (!want) return false;
+    const visibleDropdown = getMailDropdownOptions(compose).length > 0;
+    if (visibleDropdown) return false;
+    const got = normRecipientName(getVisibleMailRecipientText(compose));
+    return !!got && (got === want || got.startsWith(`${want} lv`) || got.startsWith(`${want} `));
+  }
+
+  function findRecipientDropdownOption(recipientName, compose) {
+    const want   = normRecipientName(recipientName);
+    const usable = getMailDropdownOptions(compose);
+    return (usable.find(x => x.usernameText === want)
+      || usable.find(x => x.text === want)
+      || usable.find(x => x.text === `${want} lv`)
+      || usable.find(x => x.text.startsWith(`${want} lv`))
+      || usable.find(x => x.text.startsWith(`${want} `)))?.el || null;
+  }
+
+  async function pickMailRecipientFromDropdown(compose, recipientName) {
+    const input = compose.querySelector('.mail-recipient-picker input, input[placeholder*="Recipient"], input');
+    if (!input) throw new Error("Could not find Recipient input.");
+    const want = String(recipientName || "").trim();
+    if (!want) throw new Error("Missing recipient name.");
+    if (recipientAlreadySet(compose, want)) return;
+
+    setReactValue(input, "");
+    input.focus();
+    await sleep(80);
+
+    setReactValue(input, want);
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: want.slice(-1) || " ", code: "KeyA" }));
+    input.dispatchEvent(new KeyboardEvent("keyup",   { bubbles: true, key: want.slice(-1) || " ", code: "KeyA" }));
+    await sleep(120);
+
+    let option = null;
+    const started = Date.now();
+    while (Date.now() - started < 6000) {
+      option = findRecipientDropdownOption(want, compose);
+      if (option) break;
+      await sleep(100);
+    }
+
+    if (!option) {
+      const options = getMailDropdownOptions(compose).map(o => o.rawText).join(" | ");
+      throw new Error(`Could not select recipient from dropdown: ${want}${options ? `. Options: ${options}` : ""}`);
+    }
+
+    clickDom(option);
+
+    await waitUntil(() => {
+      const hasDropdown = getMailDropdownOptions(compose).length > 0;
+      const inputText   = normRecipientName(input.value || getVisibleMailRecipientText(compose));
+      return !hasDropdown && (inputText === normRecipientName(want) || inputText.startsWith(`${normRecipientName(want)} lv`));
+    }, 5000, 80, `recipient ${want} dropdown selection`);
+    await sleep(150);
+  }
+
+  function getMailSlotOrderItems() {
+    const weaponTypes    = new Set(["sword","bow","spear","fan","harp","staff","wand","dagger","axe","mace"]);
+    const accessoryTypes = new Set(["ring","amulet"]);
+    const raw = (state.bagItemsRaw || []).filter(item => item && item.id && !item.equippedSlot && !item.is_locked && item.type !== "rune");
+    return [
+      ...raw.filter(item =>  weaponTypes.has(String(item.type || "").toLowerCase())),
+      ...raw.filter(item => !weaponTypes.has(String(item.type || "").toLowerCase()) && !accessoryTypes.has(String(item.type || "").toLowerCase())),
+      ...raw.filter(item =>  accessoryTypes.has(String(item.type || "").toLowerCase())),
+    ];
+  }
+
+  function findMailPickerSlotForItem(item) {
+    const picker = document.querySelector(".mail-picker");
+    if (!picker) throw new Error("Mail item picker did not open.");
+    const name = String(item?.name || "").trim();
+    const titleMatches = [...picker.querySelectorAll('.item-slot[title]')].filter(slot => String(slot.getAttribute("title") || "").trim() === name);
+    if (!titleMatches.length) throw new Error(`Could not find item in mail picker: ${name}`);
+    const ordered = getMailSlotOrderItems();
+    let targetOccurrence = 0;
+    for (const raw of ordered) {
+      if (String(raw.name || "").trim() === name) {
+        if (String(raw.id) === String(item.id)) break;
+        targetOccurrence++;
+      }
+    }
+    return titleMatches[Math.min(targetOccurrence, titleMatches.length - 1)] || titleMatches[0];
+  }
+
+  async function ensureMailComposeOpen() {
+    let modal = document.querySelector(".mail-modal");
+    if (!modal) {
+      const mailBtn = document.querySelector('button.sb-item[title="Mail"]')
+        || [...document.querySelectorAll("button")].find(btn => /(^|\s)Mail(\s|$)/i.test(String(btn.textContent || "")) && /✉|Mail/i.test(String(btn.textContent || "")));
+      if (!mailBtn) throw new Error("Could not find the Mail sidebar button.");
+      clickDom(mailBtn);
+      modal = await waitForSelector(".mail-modal", 6000);
+    }
+    const newMailTab = [...modal.querySelectorAll(".mail-tab")].find(tab => String(tab.textContent || "").trim().toLowerCase() === "new mail");
+    if (!newMailTab) throw new Error("Could not find the New Mail tab.");
+    if (!newMailTab.classList.contains("active")) {
+      clickDom(newMailTab);
+      await waitForSelector(".mail-compose", 5000, modal);
+    }
+    return document.querySelector(".mail-modal .mail-compose");
+  }
+
+  async function attachOneItemToCurrentMail(item) {
+    const compose   = await ensureMailComposeOpen();
+    const attachBtn = compose.querySelector(".mail-btn-attach") || findButtonByText("button", "Attach Items");
+    if (!attachBtn) throw new Error("Could not find Attach Items button.");
+
+    clickDom(attachBtn);
+    await waitForSelector(".mail-picker", 6000);
+    await sleep(150);
+
+    const slot = findMailPickerSlotForItem(item);
+    clickDom(slot);
+
+    const confirmAttachBtn = await waitForSelector(
+      ".mail-picker .mail-card-confirm, .mail-item-card .mail-card-confirm",
+      6000
+    );
+    await waitUntil(() => !isDisabledLike(confirmAttachBtn), 4000, 80, "mail item Attach button to become enabled");
+    clickDom(confirmAttachBtn);
+
+    await sleep(250);
+    await waitUntil(() => {
+      const cardBtn = document.querySelector(".mail-picker .mail-card-confirm, .mail-item-card .mail-card-confirm");
+      return !cardBtn || !document.body.contains(cardBtn);
+    }, 4000, 80, "mail item card to close after Attach").catch(() => {});
+
+    const picker = document.querySelector(".mail-picker");
+    if (picker) {
+      const close = picker.querySelector(".mail-close") || picker.querySelector("button");
+      if (close) clickDom(close);
+      await sleep(150);
+    }
+  }
+
+  async function clickSendCurrentMail() {
+    const sendBtn = document.querySelector(".mail-modal .mail-btn-send") || findButtonByText("button", "Send Mail");
+    if (!sendBtn) throw new Error("Could not find Send Mail button.");
+    await waitUntil(() => !isDisabledLike(sendBtn), 5000, 80, "Send Mail button to become enabled");
+    clickDom(sendBtn);
+    await sleep(900);
+  }
+
+  async function sendTeamMailViaDom(profile, items) {
+    const list          = (Array.isArray(items) ? items : [items]).filter(Boolean);
+    const recipientName = String(profile?.username || "").trim();
+    if (!list.length)    throw new Error("No items to attach.");
+    if (!recipientName)  throw new Error("Missing teammate username.");
+
+    const compose = await ensureMailComposeOpen();
+    await pickMailRecipientFromDropdown(compose, recipientName);
+
+    const msgBox = compose.querySelector("textarea.mail-compose-msg, textarea");
+    if (msgBox) setReactValue(msgBox, buildMailMessageForItems(profile, list));
+
+    for (const item of list) {
+      await attachOneItemToCurrentMail(item);
+    }
+    await clickSendCurrentMail();
+    return { ok: true, via: "dom-mail-compose", count: list.length };
+  }
+
+  async function sendOneTeamMail(profile, item) {
+    try {
+      return await sendTeamMailViaDom(profile, [item]);
+    } catch (domErr) {
+      console.warn("[Loot Helper] DOM mail send failed, trying learned/API endpoints", domErr);
+    }
+
+    const attempts = buildMailAttempts(profile, item);
+    let lastError  = null;
+    for (const attempt of attempts) {
+      try {
+        const result = await postJson(attempt.url, attempt.body, attempt.method || "POST");
+        if (attempt.learned) rememberMailEndpoint(attempt.url, attempt.body, attempt.method || "POST");
+        return result;
+      } catch (err) { lastError = err; continue; }
+    }
+    throw lastError || new Error("No item-mail endpoint accepted the request.");
+  }
+
+  async function sendSingleTeamTopPick(profileId, itemId) {
+    if (state.teamSendBusy) return;
+
+    const profile = teamProfiles[profileId];
+    if (!profile) {
+      state.teamSendStatus = "Could not find that teammate profile.";
+      render();
+      return;
+    }
+
+    const eqMap      = profile.equippedMap || {};
+    const profFilter = profile.filterKey ?? state.activeFilterKey;
+    const raw        = state.bagItemsRaw.find(i => String(i.id) === String(itemId));
+    if (!raw) {
+      state.teamSendStatus = "Could not find that item in your current bag snapshot.";
+      render();
+      return;
+    }
+
+    const item = _buildBagItem(raw, eqMap, profFilter);
+    const ok   = window.confirm(`Send this item through mail?\n\n${profile.username}: ${compactItemLabel(item)}`);
+    if (!ok) return;
+
+    state.teamSendBusy   = true;
+    state.teamSendStatus = `Sending ${compactItemLabel(item)} to ${profile.username}…`;
+    render();
+
+    try {
+      await sendOneTeamMail(profile, item);
+      state.teamSendStatus = `Sent ${compactItemLabel(item)} to ${profile.username}.`;
+    } catch (err) {
+      state.teamSendStatus = `Failed sending to ${profile.username}: ${err?.message || String(err)}`;
+      console.warn("[Loot Helper] Single team mail send failed", { profile, item, err });
+    } finally {
+      state.teamSendBusy = false;
+      render();
+    }
+  }
+
+  async function sendTeamTopPicks() {
+    if (state.teamSendBusy) return;
+
+    const plan = buildTeamSendPlan();
+    if (!plan.length) {
+      state.teamSendStatus = "No Top Pick items to send.";
+      render();
+      return;
+    }
+
+    const preview = plan.slice(0, 20).map(({ profile, item }) => `${profile.username}: ${compactItemLabel(item)}`).join("\n");
+    const more    = plan.length > 20 ? `\n…plus ${plan.length - 20} more` : "";
+    const ok      = window.confirm(`Send ${plan.length} Top Pick item(s) through mail?\n\n${preview}${more}`);
+    if (!ok) return;
+
+    state.teamSendBusy   = true;
+    state.teamSendStatus = `Sending ${plan.length} item(s)…`;
+    render();
+
+    const sent   = [];
+    const failed = [];
+    const groups = new Map();
+    for (const entry of plan) {
+      const key = String(entry.profile?.playerId || entry.profile?.username || "unknown");
+      if (!groups.has(key)) groups.set(key, { profile: entry.profile, entries: [] });
+      groups.get(key).entries.push(entry);
+    }
+
+    for (const group of groups.values()) {
+      try {
+        state.teamSendStatus = `Attaching ${group.entries.length} item(s) for ${group.profile.username}…`;
+        render();
+        await sendTeamMailViaDom(group.profile, group.entries.map(e => e.item));
+        sent.push(...group.entries);
+      } catch (err) {
+        console.warn("[Loot Helper] Grouped team mail send failed; falling back to one item per mail", { group, err });
+        for (const entry of group.entries) {
+          try {
+            await sendOneTeamMail(entry.profile, entry.item);
+            sent.push(entry);
+          } catch (oneErr) {
+            failed.push({ ...entry, error: oneErr?.message || err?.message || String(oneErr || err) });
+          }
+        }
+      }
+    }
+
+    state.teamSendBusy   = false;
+    state.teamSendStatus = failed.length
+      ? `Sent ${sent.length}/${plan.length}. Failed: ${failed.slice(0, 3).map(f => `${f.profile.username} (${f.error})`).join("; ")}${failed.length > 3 ? "…" : ""}`
+      : `Sent ${sent.length} item(s).`;
+
+    if (failed.length) console.warn("[Loot Helper] Team mail send failures", failed);
+    render();
+  }
+
+  window.LH_MAIL_DEBUG = window.LH_MAIL_DEBUG || {
+    dump: () => {
+      const compose  = document.querySelector(".mail-compose");
+      const picker   = document.querySelector(".mail-picker");
+      const input    = compose?.querySelector?.('.mail-recipient-picker input, input[placeholder*="Recipient"], input') || null;
+      const dropdown = document.querySelector(".mail-dropdown") || compose?.querySelector?.(".mail-dropdown") || null;
+      const info = {
+        inputValue:           input?.value || "",
+        recipientPickerHtml:  compose?.querySelector?.(".mail-recipient-picker")?.outerHTML || "",
+        dropdownHtml:         dropdown?.outerHTML || "",
+        dropdownOptions:      getMailDropdownOptions(compose).map(o => o.rawText),
+        firstPickerSlotHtml:  picker?.querySelector?.(".item-slot")?.outerHTML || "",
+        selectedCardHtml:     document.querySelector(".mail-item-card")?.outerHTML || "",
+      };
+      console.log("[Loot Helper Mail Debug]", info);
+      return info;
+    },
+    copy: async () => {
+      const text = JSON.stringify(window.LH_MAIL_DEBUG.dump(), null, 2);
+      try { await navigator.clipboard.writeText(text); } catch {}
+      return text;
+    },
+  };
+
+  /**************************************************************************
    * RENDER — Team Tab
    **************************************************************************/
 
