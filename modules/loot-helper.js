@@ -279,12 +279,30 @@
   // Pending inspect data keyed by playerId (captured from fetch intercept)
   const pendingInspect = {};
 
-  // Hook fetch to capture /api/player/{id}/inspect responses
+  // Hook fetch to capture inspect responses, auth headers, mail/salvage endpoints
   (function hookInspectFetch() {
     const _orig = window.fetch;
     window.fetch = async function(...args) {
       const url = typeof args[0] === "string" ? args[0] : (args[0]?.url ?? "");
+      if (/\/api\//i.test(url)) rememberApiAuthFromFetchArgs(args);
       const res = await _orig.apply(this, args);
+      const method = String(args[1]?.method || args[0]?.method || "GET").toUpperCase();
+      if (/\/api\/mail/i.test(url) && ["POST","PUT","PATCH"].includes(method)) {
+        let parsed = null;
+        try {
+          const body = args[1]?.body || args[0]?.body || "";
+          parsed = typeof body === "string" ? JSON.parse(body || "{}") : null;
+        } catch {}
+        rememberMailEndpoint(url, parsed, method);
+      }
+      if (/salvage/i.test(url) && ["POST","PUT","PATCH","DELETE"].includes(method)) {
+        let parsed = null;
+        try {
+          const body = args[1]?.body || args[0]?.body || "";
+          parsed = typeof body === "string" ? JSON.parse(body || "{}") : null;
+        } catch {}
+        rememberSalvageEndpoint(url, parsed, method);
+      }
       const m = url.match(/\/api\/player\/([^/?]+)\/inspect/);
       if (m) {
         res.clone().json().then(data => {
@@ -296,6 +314,75 @@
       return res;
     };
   })();
+
+  const API_AUTH_HEADERS_KEY = "voididle.sg.apiAuthHeaders.v1";
+
+  function headersToPlainObject(headersLike) {
+    const out = {};
+    if (!headersLike) return out;
+    if (typeof headersLike.entries === "function") {
+      for (const [k, v] of headersLike.entries()) out[k.toLowerCase()] = v;
+    } else if (typeof headersLike === "object") {
+      for (const [k, v] of Object.entries(headersLike)) out[String(k).toLowerCase()] = v;
+    }
+    return out;
+  }
+
+  function rememberApiAuthHeaders(headersLike) {
+    const h = headersToPlainObject(headersLike);
+    const auth = h.authorization || h["x-auth-token"] || h["x-access-token"] || h["x-supabase-auth"] || h["apikey"];
+    if (!auth) return;
+    const keep = {};
+    for (const key of ["authorization","x-auth-token","x-access-token","x-supabase-auth","apikey","x-csrf-token","x-xsrf-token"]) {
+      if (h[key]) keep[key] = h[key];
+    }
+    try { localStorage.setItem(API_AUTH_HEADERS_KEY, JSON.stringify({ headers: keep, savedAt: Date.now() })); } catch {}
+  }
+
+  function rememberApiAuthFromFetchArgs(args) {
+    try {
+      const initHeaders = args?.[1]?.headers;
+      const requestHeaders = args?.[0]?.headers;
+      rememberApiAuthHeaders(initHeaders || requestHeaders);
+    } catch {}
+  }
+
+  function getApiAuthHeaders() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(API_AUTH_HEADERS_KEY) || "null");
+      if (saved?.headers && typeof saved.headers === "object") {
+        const out = {};
+        for (const [key, value] of Object.entries(saved.headers)) out[key] = value;
+        return out;
+      }
+    } catch {}
+    return {};
+  }
+
+  async function postJson(url, body, method = "POST") {
+    const authHeaders = getApiAuthHeaders();
+    const res = await fetch(url, {
+      method,
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text().catch(() => "");
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+    if (!res.ok || json?.ok === false || json?.success === false) {
+      const msg = json?.error || json?.message || text || `${res.status} ${res.statusText}`;
+      throw new Error(msg);
+    }
+    return json ?? { ok: true, raw: text };
+  }
+
+  function compactItemLabel(item) {
+    if (!item) return "Unknown item";
+    const forge = item.forge ? `${item.forge} ` : "";
+    const plus  = item.forgeLevel ? ` +${item.forgeLevel}` : "";
+    return `${forge}${item.name}${plus}`.trim();
+  }
 
   function parseInspectCharStats(data) {
     const src = (data.stats && typeof data.stats === "object") ? data.stats : data;
@@ -468,6 +555,8 @@
     marketItems: [], marketRawData: [], marketVisible: false, marketHideFuture: false,
     marketCtxPlayerId: null,
     marketCtxMwt: 1,
+    teamSendStatus: "", teamSendBusy: false,
+    salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(),
   };
 
   /**************************************************************************
@@ -1966,6 +2055,25 @@
       }).join("")}
     </div>`;
 
+    {
+      const checkedSalvageCount    = getSelectedSalvageItems().length;
+      const highlightedSalvageCount = getHighlightedSalvageItems().length;
+      const selectedSalvageCount   = getSalvageTargetItems().length;
+      const salvageRecCount        = state.bagItems.filter(i => i.cat === "sal").length;
+      html += `<div class="sg-hl-toolbar" style="border-top:1px solid rgba(255,255,255,.04);padding-top:5px;align-items:center;">
+        <span class="sg-hl-label">Salvage:</span>
+        <button class="sg-mode-btn" data-sg-select-salvage ${(!salvageRecCount || state.salvageBusy) ? "disabled" : ""}
+          style="${(!salvageRecCount || state.salvageBusy) ? "opacity:.45;cursor:not-allowed;" : "color:#fca5a5;border-color:#ef4444;"}"
+          title="Highlight the Salvage recommendation category">Highlight Salvage (${salvageRecCount})</button>
+        <button class="sg-mode-btn" data-sg-clear-salvage ${((!checkedSalvageCount && !highlightedSalvageCount) || state.salvageBusy) ? "disabled" : ""}
+          style="${((!checkedSalvageCount && !highlightedSalvageCount) || state.salvageBusy) ? "opacity:.45;cursor:not-allowed;" : ""}">Clear</button>
+        <button class="sg-mode-btn" data-sg-salvage-selected ${(!selectedSalvageCount || state.salvageBusy) ? "disabled" : ""}
+          style="${(!selectedSalvageCount || state.salvageBusy) ? "opacity:.45;cursor:not-allowed;" : "color:#fca5a5;border-color:#ef4444;background:rgba(239,68,68,.08);"}"
+          title="Salvage gear items selected by the Highlight buttons, plus any checked items">💾 ${state.salvageBusy ? "Salvaging…" : `Salvage Highlighted (${selectedSalvageCount})`}</button>
+        ${state.salvageStatus ? `<span style="font-size:10px;line-height:1.25;color:${state.salvageStatus.startsWith("Salvaged") ? "#4ade80" : state.salvageStatus.startsWith("Salvaging") ? "#93c5fd" : "#fca5a5"};">${esc(state.salvageStatus)}</span>` : ""}
+      </div>`;
+    }
+
     if (!state.bagItems.length) {
       html += `<div class="sg-hint">Open <strong>Inventory</strong><br>to load items.</div>`;
       return html;
@@ -2383,7 +2491,7 @@
     return `<div class="sg-item-deltas">${lines.join("")}</div>`;
   }
 
-  function renderItemCard(item, ctx = state) {
+  function renderItemCard(item, ctx = state, opts = {}) {
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
@@ -2393,12 +2501,16 @@
     const bumpCol   = adjResult?.mode === "defensive" ? "#60a5fa" : "#f97316";
     const bumpLabel = adjResult?.mode === "defensive" ? "EHP" : "DPS";
     const bumpNote  = adjResult ? `<span title="${bumpLabel}-Anpassung aktiv (${adjResult.bump>0?"+":""}${adjResult.bump} Score)" style="color:${bumpCol};font-size:9px;margin-left:2px;">${bumpIcon}</span>` : "";
+    const teamSendButton = opts.teamSendProfileId
+      ? `<button type="button" class="sg-btn" data-sg-team-send-one="${esc(opts.teamSendProfileId)}" data-item-id="${esc(item.id)}" ${state.teamSendBusy ? "disabled" : ""} style="padding:1px 6px;font-size:9px;margin-left:4px;${state.teamSendBusy ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send only this item to this teammate through Mail">📬 Send this</button>`
+      : "";
     const badges    = [
       `<span class="sg-badge ${dispRec.cls}">${esc(dispRec.label)}</span>${bumpNote}`,
       `<span class="sg-badge sg-badge-shard">💎 ${item.shards}</span>`,
       item.isLegacyStar ? `<span class="sg-badge sg-badge-legacy">★ Legacy</span>` : "",
       multiHtml(item),
       item.classRestricted ? `<span class="sg-badge sg-badge-restricted">🔒 Wrong type</span>` : "",
+      teamSendButton,
     ].filter(Boolean).join("");
 
     const icon = ITEM_ICONS[item.weaponSubType] ?? "";
@@ -2416,6 +2528,7 @@
       <div style="display:flex;gap:6px;align-items:flex-start;">
         <div style="flex:1;min-width:0;">
           <div class="sg-item-head">
+            ${!opts.teamSendProfileId ? `<label title="Select for salvage" style="display:inline-flex;align-items:center;margin-right:3px;cursor:pointer;"><input type="checkbox" data-sg-salvage-check="${esc(item.id)}" ${state.salvageSelectedIds.has(String(item.id)) ? "checked" : ""} style="width:12px;height:12px;accent-color:#ef4444;cursor:pointer;"></label>` : ""}
             ${icon?`<span class="sg-type-icon">${icon}</span>`:""}
             ${item.forge?`<span style="color:#facc15;font-size:11px;">${esc(item.forge)}</span>`:""}
             <span class="sg-item-name" style="color:${color};">${esc(item.name)}${forgeStr?` <span style="color:#64748b;font-weight:400;">${esc(forgeStr)}</span>`:""}</span>
@@ -2477,6 +2590,760 @@
   }
 
   /**************************************************************************
+   * SALVAGE
+   **************************************************************************/
+
+  const SALVAGE_STORAGE_KEY          = "sgSalvageLearnedEndpoint";
+  const SALVAGE_TEMPLATE_STORAGE_KEY = "sgSalvageLearnedTemplateV1";
+
+  function getSelectedSalvageItems() {
+    const liveIds = new Set(state.bagItems.map(i => String(i.id)));
+    for (const id of [...state.salvageSelectedIds]) {
+      if (!liveIds.has(String(id))) state.salvageSelectedIds.delete(id);
+    }
+    return state.bagItems.filter(item => state.salvageSelectedIds.has(String(item.id)));
+  }
+
+  function getHighlightedSalvageItems() {
+    if (!state.highlightCats.size) return [];
+    return state.bagItems.filter(item => item && item.id && state.highlightCats.has(item.cat));
+  }
+
+  function getSalvageTargetItems() {
+    const byId = new Map();
+    for (const item of getHighlightedSalvageItems()) byId.set(String(item.id), item);
+    for (const item of getSelectedSalvageItems())    byId.set(String(item.id), item);
+    return [...byId.values()];
+  }
+
+  function rememberSalvageEndpoint(url, bodyOrKeys = null, method = "POST") {
+    try {
+      const keys = Array.isArray(bodyOrKeys)
+        ? bodyOrKeys
+        : (bodyOrKeys && typeof bodyOrKeys === "object" ? Object.keys(bodyOrKeys) : []);
+      localStorage.setItem(SALVAGE_STORAGE_KEY, JSON.stringify({ url, method, bodyKeys: keys, savedAt: Date.now() }));
+      if (bodyOrKeys && typeof bodyOrKeys === "object") {
+        localStorage.setItem(SALVAGE_TEMPLATE_STORAGE_KEY, JSON.stringify({ url, method, body: bodyOrKeys, savedAt: Date.now() }));
+      }
+    } catch {}
+  }
+
+  function getStoredSalvageTemplate() {
+    try { return JSON.parse(localStorage.getItem(SALVAGE_TEMPLATE_STORAGE_KEY) || "null"); } catch { return null; }
+  }
+
+  function _cloneJson(x) {
+    try { return JSON.parse(JSON.stringify(x)); } catch { return x; }
+  }
+
+  function _rewriteLearnedSalvagePayload(templateBody, item) {
+    const itemId = item.id;
+    const rewrite = (value, key = "") => {
+      const k = String(key || "");
+      if (/^(itemid|iteminstanceid|inventoryitemid|id)$/i.test(k)) return itemId;
+      if (/^(itemids|iteminstanceids|inventoryitemids|ids)$/i.test(k)) return [itemId];
+      if (/^(quantity|qty|amount|count)$/i.test(k)) return 1;
+      if (Array.isArray(value)) {
+        if (/^(items|itemids|inventoryitems|salvageitems)$/i.test(k)) {
+          const first = value[0];
+          if (first && typeof first === "object") return [rewrite(first, k)];
+          return [itemId];
+        }
+        return value.map(v => rewrite(v, k));
+      }
+      if (value && typeof value === "object") {
+        const out = {};
+        for (const [childKey, childVal] of Object.entries(value)) out[childKey] = rewrite(childVal, childKey);
+        if (/^(items|inventoryitems|salvageitems)$/i.test(k) && !Object.keys(out).some(x => /item|id/i.test(x))) {
+          out.itemId = itemId;
+          out.quantity = 1;
+        }
+        return out;
+      }
+      return value;
+    };
+    return rewrite(_cloneJson(templateBody));
+  }
+
+  function addSalvageAttempt(attempts, url, payload, method = "POST", learned = false) {
+    if (!url || attempts.some(a => a.url === url && JSON.stringify(a.body) === JSON.stringify(payload))) return;
+    attempts.push({ url, method, body: payload, learned });
+  }
+
+  function buildSalvageAttempts(item) {
+    const itemId = item.id;
+    const attempts = [];
+    const learnedTemplate = getStoredSalvageTemplate();
+    if (learnedTemplate?.url && learnedTemplate?.body) {
+      addSalvageAttempt(attempts, learnedTemplate.url, _rewriteLearnedSalvagePayload(learnedTemplate.body, item), learnedTemplate.method || "POST", true);
+    }
+    [
+      ["/api/inventory/salvage-selected", { itemIds: [itemId] }],
+      ["/api/inventory/salvage",          { itemId, quantity: 1 }],
+      ["/api/inventory/salvage",          { itemIds: [itemId] }],
+      ["/api/inventory/salvage-item",     { itemId, quantity: 1 }],
+      ["/api/inventory/salvageItem",      { itemId, quantity: 1 }],
+      ["/api/item/salvage",               { itemId, quantity: 1 }],
+      ["/api/items/salvage",              { itemIds: [itemId] }],
+      ["/api/equipment/salvage",          { inventoryItemId: itemId, quantity: 1 }],
+      ["/api/inventory/sell",             { itemId, quantity: 1 }],
+    ].forEach(([url, body]) => addSalvageAttempt(attempts, url, body));
+    return attempts;
+  }
+
+  async function salvageItemsBatch(items) {
+    const itemIds = items.map(item => String(item.id)).filter(Boolean);
+    if (!itemIds.length) return { ok: true };
+    return postJson("/api/inventory/salvage-selected", { itemIds });
+  }
+
+  async function salvageOneItem(item) {
+    const attempts = buildSalvageAttempts(item);
+    let lastError = null;
+    for (const attempt of attempts) {
+      try {
+        const result = await postJson(attempt.url, attempt.body, attempt.method || "POST");
+        if (attempt.learned) rememberSalvageEndpoint(attempt.url, attempt.body, attempt.method || "POST");
+        return result;
+      } catch (err) { lastError = err; continue; }
+    }
+    throw lastError || new Error("No salvage endpoint accepted the request. Manually salvage one cheap item once while the script is active so it can learn the real endpoint.");
+  }
+
+  async function salvageSelectedItems() {
+    if (state.salvageBusy) return;
+    const items = getSalvageTargetItems();
+    if (!items.length) {
+      state.salvageStatus = "No highlighted/checked items to salvage.";
+      render();
+      return;
+    }
+    const preview = items.slice(0, 20).map(item => `${item.rec?.label || ""} ${compactItemLabel(item)} · ${item.rarity} · ${item.slotType}`).join("\n");
+    const more = items.length > 20 ? `\n…plus ${items.length - 20} more` : "";
+    const ok = window.confirm(`Salvage ${items.length} highlighted/checked item(s)?\n\n${preview}${more}`);
+    if (!ok) return;
+
+    state.salvageBusy = true;
+    state.salvageStatus = `Salvaging ${items.length} item(s)…`;
+    render();
+
+    const salvaged = [];
+    const failed   = [];
+
+    try {
+      const result    = await salvageItemsBatch(items);
+      salvaged.push(...items);
+      for (const item of items) state.salvageSelectedIds.delete(String(item.id));
+
+      const goldGained = Number(result?.goldGained || result?.gold || 0);
+      const matsGained = result?.materialsGained || result?.materials || null;
+      let extra = goldGained ? ` · +${fmt(goldGained)}g` : "";
+      if (matsGained && typeof matsGained === "object") {
+        const mats = Object.entries(matsGained).map(([k, v]) => `${v} ${k}`).join(", ");
+        if (mats) extra += ` · ${mats}`;
+      }
+      state.salvageStatus = `Salvaged ${salvaged.length} item(s)${extra}.`;
+    } catch (batchErr) {
+      console.warn("[Loot Helper] Batch salvage failed, falling back to per-item salvage", batchErr);
+      for (const item of items) {
+        try {
+          await salvageOneItem(item);
+          salvaged.push(item);
+          state.salvageSelectedIds.delete(String(item.id));
+        } catch (err) {
+          failed.push({ item, error: err?.message || String(err) });
+        }
+      }
+      state.salvageStatus = failed.length
+        ? `Salvaged ${salvaged.length}/${items.length}. Failed: ${failed.slice(0, 3).map(f => `${compactItemLabel(f.item)} (${f.error})`).join("; ")}${failed.length > 3 ? "…" : ""}`
+        : `Salvaged ${salvaged.length} item(s).`;
+      if (failed.length) console.warn("[Loot Helper] Salvage failures", failed);
+    }
+
+    if (salvaged.length) {
+      const done = new Set(salvaged.map(item => String(item.id)));
+      state.bagItems    = state.bagItems.filter(item => !done.has(String(item.id)));
+      state.bagItemsRaw = state.bagItemsRaw.filter(item => !done.has(String(item.id)));
+      applyBagHighlights();
+    }
+
+    state.salvageBusy = false;
+    render();
+  }
+
+  /**************************************************************************
+   * MAIL SEND TO PARTY
+   **************************************************************************/
+
+  const TEAM_SEND_STORAGE_KEY          = "sgMailSendLearnedEndpoint";
+  const TEAM_SEND_TEMPLATE_STORAGE_KEY = "sgMailSendLearnedItemTemplateV2";
+
+  function getRawItemById(itemId) {
+    return state.bagItemsRaw.find(raw => String(raw.id) === String(itemId)) || null;
+  }
+
+  function buildTeamSendPlan() {
+    const candidates = [];
+    for (const profile of Object.values(teamProfiles)) {
+      const eqMap      = profile.equippedMap || {};
+      const profFilter = profile.filterKey ?? state.activeFilterKey;
+      for (const raw of state.bagItemsRaw) {
+        const ev = _buildBagItem(raw, eqMap, profFilter);
+        if (ev.cat !== "top") continue;
+        if (!ev.id) continue;
+        candidates.push({ profile, item: ev, raw, score: Number(ev.prefScore || 0) });
+      }
+    }
+
+    candidates.sort((a, b) =>
+      b.score - a.score ||
+      (b.item.mrMedianQuality || 0) - (a.item.mrMedianQuality || 0) ||
+      String(a.profile.username || "").localeCompare(String(b.profile.username || ""))
+    );
+
+    const usedItems = new Set();
+    const plan = [];
+    for (const candidate of candidates) {
+      const itemKey = String(candidate.item.id);
+      if (usedItems.has(itemKey)) continue;
+      usedItems.add(itemKey);
+      plan.push(candidate);
+    }
+
+    plan.sort((a, b) =>
+      String(a.profile.username || "").localeCompare(String(b.profile.username || "")) || b.score - a.score
+    );
+    return plan;
+  }
+
+  function buildMailMessage(profile, item) {
+    const diffs = (item.diffs || [])
+      .filter(d => d.isUp)
+      .slice(0, 5)
+      .map(d => d.text)
+      .join(", ");
+    const why = diffs ? `Upgrade stats: ${diffs}` : "Loot Helper marked this as a Top Pick.";
+    return `Sent by Loot Helper. ${why}`;
+  }
+
+  function buildMailMessageForItems(profile, items) {
+    const list = (Array.isArray(items) ? items : [items]).filter(Boolean);
+    if (list.length <= 1) return buildMailMessage(profile, list[0]);
+    const names = list.slice(0, 12).map(item => compactItemLabel(item)).join(", ");
+    const more  = list.length > 12 ? `, +${list.length - 12} more` : "";
+    return `Sent by Loot Helper. Top Pick upgrades for ${profile?.username || "teammate"}: ${names}${more}`.slice(0, 500);
+  }
+
+  function getStoredMailTemplate() {
+    try { return JSON.parse(localStorage.getItem(TEAM_SEND_TEMPLATE_STORAGE_KEY) || "null"); } catch { return null; }
+  }
+
+  function _objHasItemishKey(obj) {
+    let found = false;
+    const walk = (v, key = "") => {
+      if (found || v == null) return;
+      if (/item|inventory|attachment/i.test(String(key))) found = true;
+      if (Array.isArray(v)) return v.slice(0, 3).forEach(x => walk(x, key));
+      if (typeof v === "object") Object.entries(v).forEach(([k, val]) => walk(val, k));
+    };
+    walk(obj);
+    return found;
+  }
+
+  function rememberMailEndpoint(url, bodyOrKeys = null, method = "POST") {
+    try {
+      const keys = Array.isArray(bodyOrKeys)
+        ? bodyOrKeys
+        : (bodyOrKeys && typeof bodyOrKeys === "object" ? Object.keys(bodyOrKeys) : []);
+      localStorage.setItem(TEAM_SEND_STORAGE_KEY, JSON.stringify({ url, method, bodyKeys: keys, savedAt: Date.now() }));
+      if (bodyOrKeys && typeof bodyOrKeys === "object" && _objHasItemishKey(bodyOrKeys)) {
+        localStorage.setItem(TEAM_SEND_TEMPLATE_STORAGE_KEY, JSON.stringify({ url, method, body: bodyOrKeys, savedAt: Date.now() }));
+      }
+    } catch {}
+  }
+
+  function addMailEndpointToAttempts(attempts, url, payload, method = "POST", learned = false) {
+    if (!url || attempts.some(a => a.url === url && JSON.stringify(a.body) === JSON.stringify(payload))) return;
+    attempts.push({ url, method, body: payload, learned });
+  }
+
+  function _rewriteLearnedMailPayload(templateBody, profile, item, subject, message) {
+    const recipientId   = profile.playerId;
+    const recipientName = profile.username;
+    const itemId        = item.id;
+
+    const rewrite = (value, key = "") => {
+      const k = String(key || "");
+      if (/^(recipientid|toplayerid|targetplayerid|receiverid|receiverplayerid|playerid|toid|userid)$/i.test(k)) return recipientId;
+      if (/^(recipientname|tousername|targetusername|receivername|toname|to)$/i.test(k)) return recipientName;
+      if (/^(itemid|iteminstanceid|inventoryitemid|attachmentitemid|attacheditemid)$/i.test(k)) return itemId;
+      if (/^(itemids|iteminstanceids|inventoryitemids)$/i.test(k)) return [itemId];
+      if (/^(quantity|qty|amount|count)$/i.test(k)) return 1;
+      if (/^(subject|title)$/i.test(k)) return subject;
+      if (/^(message|body|text|content)$/i.test(k)) return message;
+      if (Array.isArray(value)) {
+        if (/^(items|attachments|attacheditems|mailitems)$/i.test(k)) {
+          const first = value[0];
+          if (first && typeof first === "object") return [rewrite(first, k)];
+          return [itemId];
+        }
+        return value.map(v => rewrite(v, k));
+      }
+      if (value && typeof value === "object") {
+        const out = {};
+        for (const [childKey, childVal] of Object.entries(value)) out[childKey] = rewrite(childVal, childKey);
+        if (/^(items|attachments|attacheditems|mailitems)$/i.test(k) && !Object.keys(out).some(x => /item/i.test(x))) {
+          out.itemId   = itemId;
+          out.quantity = 1;
+        }
+        return out;
+      }
+      return value;
+    };
+    return rewrite(_cloneJson(templateBody));
+  }
+
+  function buildMailAttempts(profile, item) {
+    const subject       = `Gear upgrade: ${compactItemLabel(item)}`.slice(0, 80);
+    const message       = buildMailMessage(profile, item);
+    const recipientId   = profile.playerId;
+    const recipientName = profile.username;
+    const itemId        = item.id;
+    const attempts      = [];
+
+    const learnedTemplate = getStoredMailTemplate();
+    if (learnedTemplate?.url && learnedTemplate?.body) {
+      addMailEndpointToAttempts(attempts, learnedTemplate.url, _rewriteLearnedMailPayload(learnedTemplate.body, profile, item, subject, message), learnedTemplate.method || "POST", true);
+    }
+
+    [
+      ["/api/mail/send-item",  { recipientId, itemId, quantity: 1, subject, message }],
+      ["/api/mail/send-item",  { recipientName, itemId, quantity: 1, subject, message }],
+      ["/api/mail/sendItem",   { recipientId, itemId, quantity: 1, subject, message }],
+      ["/api/mail/item",       { toPlayerId: recipientId, itemId, quantity: 1, subject, message }],
+      ["/api/mail/items/send", { toPlayerId: recipientId, itemId, quantity: 1, subject, message }],
+      ["/api/mail/send",       { recipientId, subject, message, itemId, quantity: 1 }],
+      ["/api/mail/send",       { recipientId, subject, message, itemInstanceId: itemId, quantity: 1 }],
+      ["/api/mail/send",       { toPlayerId: recipientId, subject, body: message, itemId, quantity: 1 }],
+      ["/api/mail/send",       { toUsername: recipientName, subject, body: message, itemId, quantity: 1 }],
+      ["/api/mail/send",       { recipientId, subject, message, attachments: [{ itemId, quantity: 1 }] }],
+      ["/api/mail/send",       { toUsername: recipientName, subject, body: message, items: [{ itemId, quantity: 1 }] }],
+    ].forEach(([url, body]) => addMailEndpointToAttempts(attempts, url, body));
+
+    return attempts;
+  }
+
+  // ── DOM automation helpers ────────────────────────────────────────────────
+
+  function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+  async function waitForSelector(selector, timeoutMs = 5000, root = document) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const el = root.querySelector(selector);
+      if (el) return el;
+      await sleep(75);
+    }
+    throw new Error(`Timed out waiting for ${selector}`);
+  }
+
+  function clickDom(el) {
+    if (!el) throw new Error("Missing clickable element");
+    try { el.scrollIntoView({ block: "center", inline: "center" }); } catch {}
+    el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, view: window }));
+    el.dispatchEvent(new MouseEvent("mousedown",   { bubbles: true, cancelable: true, view: window }));
+    el.dispatchEvent(new MouseEvent("pointerup",   { bubbles: true, cancelable: true, view: window }));
+    el.dispatchEvent(new MouseEvent("mouseup",     { bubbles: true, cancelable: true, view: window }));
+    el.click();
+  }
+
+  function setReactValue(el, value) {
+    if (!el) throw new Error("Missing input element");
+    const proto  = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (setter) setter.call(el, String(value ?? ""));
+    else el.value = String(value ?? "");
+    try {
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: String(value ?? "") }));
+    } catch {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function findButtonByText(selector, text) {
+    const want = String(text || "").trim().toLowerCase();
+    return [...document.querySelectorAll(selector)].find(btn => String(btn.textContent || "").trim().toLowerCase() === want) || null;
+  }
+
+  async function waitUntil(predicate, timeout = 5000, interval = 80, label = "condition") {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      let ok = false;
+      try { ok = !!predicate(); } catch {}
+      if (ok) return true;
+      await sleep(interval);
+    }
+    throw new Error(`Timed out waiting for ${label}`);
+  }
+
+  function isDisabledLike(el) {
+    if (!el) return true;
+    return !!(el.disabled || el.getAttribute("aria-disabled") === "true" || /disabled/i.test(String(el.className || "")));
+  }
+
+  function isElementVisible(el) {
+    if (!el || !el.isConnected) return false;
+    const r  = el.getBoundingClientRect?.();
+    const st = getComputedStyle(el);
+    return !!r && r.width > 0 && r.height > 0 && st.display !== "none" && st.visibility !== "hidden" && st.opacity !== "0";
+  }
+
+  function normRecipientName(v) {
+    return String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  function getVisibleMailRecipientText(compose) {
+    const picker = compose?.querySelector?.(".mail-recipient-picker");
+    if (!picker) return "";
+    const input = picker.querySelector("input");
+    const clone = picker.cloneNode(true);
+    clone.querySelectorAll("input,textarea,button").forEach(n => n.remove());
+    return String(input?.value || clone.textContent || "").trim();
+  }
+
+  function getMailDropdownOptions(compose) {
+    const roots = [
+      ...(compose ? [...compose.querySelectorAll(".mail-dropdown")] : []),
+      ...document.querySelectorAll(".mail-dropdown"),
+      ...document.querySelectorAll('[role="listbox"], [role="menu"]'),
+    ].filter(Boolean);
+
+    const candidates = [];
+    for (const root of roots) {
+      const directItems = [...root.querySelectorAll(".mail-dropdown-item, button, [role='option'], [role='menuitem'], li")];
+      if (root.matches?.(".mail-dropdown-item, button, [role='option'], [role='menuitem'], li")) directItems.unshift(root);
+      if (directItems.length) candidates.push(...directItems);
+      else candidates.push(...root.querySelectorAll("div, span"));
+    }
+
+    return [...new Set(candidates)]
+      .filter(el => isElementVisible(el))
+      .map(el => {
+        const rawText      = String(el.textContent || el.getAttribute("title") || el.getAttribute("aria-label") || "").trim();
+        const text         = normRecipientName(rawText);
+        const usernameText = normRecipientName(rawText.replace(/\s+Lv\s*\d+\s*$/i, ""));
+        return { el, text, usernameText, rawText };
+      })
+      .filter(x => x.text);
+  }
+
+  function recipientAlreadySet(compose, recipientName) {
+    const want = normRecipientName(recipientName);
+    if (!want) return false;
+    const visibleDropdown = getMailDropdownOptions(compose).length > 0;
+    if (visibleDropdown) return false;
+    const got = normRecipientName(getVisibleMailRecipientText(compose));
+    return !!got && (got === want || got.startsWith(`${want} lv`) || got.startsWith(`${want} `));
+  }
+
+  function findRecipientDropdownOption(recipientName, compose) {
+    const want   = normRecipientName(recipientName);
+    const usable = getMailDropdownOptions(compose);
+    return (usable.find(x => x.usernameText === want)
+      || usable.find(x => x.text === want)
+      || usable.find(x => x.text === `${want} lv`)
+      || usable.find(x => x.text.startsWith(`${want} lv`))
+      || usable.find(x => x.text.startsWith(`${want} `)))?.el || null;
+  }
+
+  async function pickMailRecipientFromDropdown(compose, recipientName) {
+    const input = compose.querySelector('.mail-recipient-picker input, input[placeholder*="Recipient"], input');
+    if (!input) throw new Error("Could not find Recipient input.");
+    const want = String(recipientName || "").trim();
+    if (!want) throw new Error("Missing recipient name.");
+    if (recipientAlreadySet(compose, want)) return;
+
+    setReactValue(input, "");
+    input.focus();
+    await sleep(80);
+
+    setReactValue(input, want);
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: want.slice(-1) || " ", code: "KeyA" }));
+    input.dispatchEvent(new KeyboardEvent("keyup",   { bubbles: true, key: want.slice(-1) || " ", code: "KeyA" }));
+    await sleep(120);
+
+    let option = null;
+    const started = Date.now();
+    while (Date.now() - started < 6000) {
+      option = findRecipientDropdownOption(want, compose);
+      if (option) break;
+      await sleep(100);
+    }
+
+    if (!option) {
+      const options = getMailDropdownOptions(compose).map(o => o.rawText).join(" | ");
+      throw new Error(`Could not select recipient from dropdown: ${want}${options ? `. Options: ${options}` : ""}`);
+    }
+
+    clickDom(option);
+
+    await waitUntil(() => {
+      const hasDropdown = getMailDropdownOptions(compose).length > 0;
+      const inputText   = normRecipientName(input.value || getVisibleMailRecipientText(compose));
+      return !hasDropdown && (inputText === normRecipientName(want) || inputText.startsWith(`${normRecipientName(want)} lv`));
+    }, 5000, 80, `recipient ${want} dropdown selection`);
+    await sleep(150);
+  }
+
+  function getMailSlotOrderItems() {
+    const weaponTypes    = new Set(["sword","bow","spear","fan","harp","staff","wand","dagger","axe","mace"]);
+    const accessoryTypes = new Set(["ring","amulet"]);
+    const raw = (state.bagItemsRaw || []).filter(item => item && item.id && !item.equippedSlot && !item.is_locked && String(item.type || "").toLowerCase() !== "rune");
+    return [
+      ...raw.filter(item =>  weaponTypes.has(String(item.type || "").toLowerCase())),
+      ...raw.filter(item => !weaponTypes.has(String(item.type || "").toLowerCase()) && !accessoryTypes.has(String(item.type || "").toLowerCase())),
+      ...raw.filter(item =>  accessoryTypes.has(String(item.type || "").toLowerCase())),
+    ];
+  }
+
+  function findMailPickerSlotForItem(item) {
+    const picker = document.querySelector(".mail-picker");
+    if (!picker) throw new Error("Mail item picker did not open.");
+    const name = String(item?.name || "").trim();
+    const titleMatches = [...picker.querySelectorAll('.item-slot[title]')].filter(slot => String(slot.getAttribute("title") || "").trim() === name);
+    if (!titleMatches.length) throw new Error(`Could not find item in mail picker: ${name}`);
+    const ordered = getMailSlotOrderItems();
+    let targetOccurrence = 0;
+    for (const raw of ordered) {
+      if (String(raw.name || "").trim() === name) {
+        if (String(raw.id) === String(item.id)) break;
+        targetOccurrence++;
+      }
+    }
+    return titleMatches[Math.min(targetOccurrence, titleMatches.length - 1)] || titleMatches[0];
+  }
+
+  async function ensureMailComposeOpen() {
+    let modal = document.querySelector(".mail-modal");
+    if (!modal) {
+      const mailBtn = document.querySelector('button.sb-item[title="Mail"]')
+        || [...document.querySelectorAll("button")].find(btn => /(^|\s)Mail(\s|$)/i.test(String(btn.textContent || "")) && /✉|Mail/i.test(String(btn.textContent || "")));
+      if (!mailBtn) throw new Error("Could not find the Mail sidebar button.");
+      clickDom(mailBtn);
+      modal = await waitForSelector(".mail-modal", 6000);
+    }
+    const newMailTab = [...modal.querySelectorAll(".mail-tab")].find(tab => String(tab.textContent || "").trim().toLowerCase() === "new mail");
+    if (!newMailTab) throw new Error("Could not find the New Mail tab.");
+    if (!newMailTab.classList.contains("active")) {
+      clickDom(newMailTab);
+      await waitForSelector(".mail-compose", 5000, modal);
+    }
+    return document.querySelector(".mail-modal .mail-compose");
+  }
+
+  async function attachOneItemToCurrentMail(item) {
+    const compose   = await ensureMailComposeOpen();
+    const attachBtn = compose.querySelector(".mail-btn-attach") || findButtonByText("button", "Attach Items");
+    if (!attachBtn) throw new Error("Could not find Attach Items button.");
+
+    clickDom(attachBtn);
+    await waitForSelector(".mail-picker", 6000);
+    await sleep(150);
+
+    const slot = findMailPickerSlotForItem(item);
+    clickDom(slot);
+
+    const confirmAttachBtn = await waitForSelector(
+      ".mail-picker .mail-card-confirm, .mail-item-card .mail-card-confirm",
+      6000
+    );
+    await waitUntil(() => !isDisabledLike(confirmAttachBtn), 4000, 80, "mail item Attach button to become enabled");
+    clickDom(confirmAttachBtn);
+
+    await sleep(250);
+    await waitUntil(() => {
+      const cardBtn = document.querySelector(".mail-picker .mail-card-confirm, .mail-item-card .mail-card-confirm");
+      return !cardBtn || !document.body.contains(cardBtn);
+    }, 4000, 80, "mail item card to close after Attach").catch(() => {});
+
+    const picker = document.querySelector(".mail-picker");
+    if (picker) {
+      const close = picker.querySelector(".mail-close") || picker.querySelector("button");
+      if (close) clickDom(close);
+      await sleep(150);
+    }
+  }
+
+  async function clickSendCurrentMail() {
+    const sendBtn = document.querySelector(".mail-modal .mail-btn-send") || findButtonByText("button", "Send Mail");
+    if (!sendBtn) throw new Error("Could not find Send Mail button.");
+    await waitUntil(() => !isDisabledLike(sendBtn), 5000, 80, "Send Mail button to become enabled");
+    clickDom(sendBtn);
+    await sleep(900);
+  }
+
+  async function sendTeamMailViaDom(profile, items) {
+    const list          = (Array.isArray(items) ? items : [items]).filter(Boolean);
+    const recipientName = String(profile?.username || "").trim();
+    if (!list.length)    throw new Error("No items to attach.");
+    if (!recipientName)  throw new Error("Missing teammate username.");
+
+    const compose = await ensureMailComposeOpen();
+    await pickMailRecipientFromDropdown(compose, recipientName);
+
+    const msgBox = compose.querySelector("textarea.mail-compose-msg, textarea");
+    if (msgBox) setReactValue(msgBox, buildMailMessageForItems(profile, list));
+
+    for (const item of list) {
+      await attachOneItemToCurrentMail(item);
+    }
+    await clickSendCurrentMail();
+    return { ok: true, via: "dom-mail-compose", count: list.length };
+  }
+
+  async function sendOneTeamMail(profile, item) {
+    try {
+      return await sendTeamMailViaDom(profile, [item]);
+    } catch (domErr) {
+      console.warn("[Loot Helper] DOM mail send failed, trying learned/API endpoints", domErr);
+    }
+
+    const attempts = buildMailAttempts(profile, item);
+    let lastError  = null;
+    for (const attempt of attempts) {
+      try {
+        const result = await postJson(attempt.url, attempt.body, attempt.method || "POST");
+        if (attempt.learned) rememberMailEndpoint(attempt.url, attempt.body, attempt.method || "POST");
+        return result;
+      } catch (err) { lastError = err; continue; }
+    }
+    throw lastError || new Error("No item-mail endpoint accepted the request.");
+  }
+
+  async function sendSingleTeamTopPick(profileId, itemId) {
+    if (state.teamSendBusy) return;
+
+    const profile = teamProfiles[profileId];
+    if (!profile) {
+      state.teamSendStatus = "Could not find that teammate profile.";
+      render();
+      return;
+    }
+
+    const eqMap      = profile.equippedMap || {};
+    const profFilter = profile.filterKey ?? state.activeFilterKey;
+    const raw        = state.bagItemsRaw.find(i => String(i.id) === String(itemId));
+    if (!raw) {
+      state.teamSendStatus = "Could not find that item in your current bag snapshot.";
+      render();
+      return;
+    }
+
+    const item = _buildBagItem(raw, eqMap, profFilter);
+    const ok   = window.confirm(`Send this item through mail?\n\n${profile.username}: ${compactItemLabel(item)}`);
+    if (!ok) return;
+
+    state.teamSendBusy   = true;
+    state.teamSendStatus = `Sending ${compactItemLabel(item)} to ${profile.username}…`;
+    render();
+
+    try {
+      await sendOneTeamMail(profile, item);
+      state.teamSendStatus = `Sent ${compactItemLabel(item)} to ${profile.username}.`;
+    } catch (err) {
+      state.teamSendStatus = `Failed sending to ${profile.username}: ${err?.message || String(err)}`;
+      console.warn("[Loot Helper] Single team mail send failed", { profile, item, err });
+    } finally {
+      state.teamSendBusy = false;
+      render();
+    }
+  }
+
+  async function sendTeamTopPicks() {
+    if (state.teamSendBusy) return;
+
+    const plan = buildTeamSendPlan();
+    if (!plan.length) {
+      state.teamSendStatus = "No Top Pick items to send.";
+      render();
+      return;
+    }
+
+    const preview = plan.slice(0, 20).map(({ profile, item }) => `${profile.username}: ${compactItemLabel(item)}`).join("\n");
+    const more    = plan.length > 20 ? `\n…plus ${plan.length - 20} more` : "";
+    const ok      = window.confirm(`Send ${plan.length} Top Pick item(s) through mail?\n\n${preview}${more}`);
+    if (!ok) return;
+
+    state.teamSendBusy   = true;
+    state.teamSendStatus = `Sending ${plan.length} item(s)…`;
+    render();
+
+    const sent   = [];
+    const failed = [];
+    const groups = new Map();
+    for (const entry of plan) {
+      const key = String(entry.profile?.playerId || entry.profile?.username || "unknown");
+      if (!groups.has(key)) groups.set(key, { profile: entry.profile, entries: [] });
+      groups.get(key).entries.push(entry);
+    }
+
+    try {
+      for (const group of groups.values()) {
+        try {
+          state.teamSendStatus = `Attaching ${group.entries.length} item(s) for ${group.profile.username}…`;
+          render();
+          await sendTeamMailViaDom(group.profile, group.entries.map(e => e.item));
+          sent.push(...group.entries);
+        } catch (err) {
+          console.warn("[Loot Helper] Grouped team mail send failed; falling back to one item per mail", { group, err });
+          for (const entry of group.entries) {
+            try {
+              await sendOneTeamMail(entry.profile, entry.item);
+              sent.push(entry);
+            } catch (oneErr) {
+              failed.push({ ...entry, error: oneErr?.message || String(oneErr) });
+            }
+          }
+        }
+      }
+
+      state.teamSendStatus = failed.length
+        ? `Sent ${sent.length}/${plan.length}. Failed: ${failed.slice(0, 3).map(f => `${f.profile.username} (${f.error})`).join("; ")}${failed.length > 3 ? "…" : ""}`
+        : `Sent ${sent.length} item(s).`;
+
+      if (failed.length) console.warn("[Loot Helper] Team mail send failures", failed);
+    } finally {
+      state.teamSendBusy = false;
+      render();
+    }
+  }
+
+  window.LH_MAIL_DEBUG = window.LH_MAIL_DEBUG || {
+    dump: () => {
+      const compose  = document.querySelector(".mail-compose");
+      const picker   = document.querySelector(".mail-picker");
+      const input    = compose?.querySelector?.('.mail-recipient-picker input, input[placeholder*="Recipient"], input') || null;
+      const dropdown = document.querySelector(".mail-dropdown") || compose?.querySelector?.(".mail-dropdown") || null;
+      const info = {
+        inputValue:           input?.value || "",
+        recipientPickerHtml:  compose?.querySelector?.(".mail-recipient-picker")?.outerHTML || "",
+        dropdownHtml:         dropdown?.outerHTML || "",
+        dropdownOptions:      getMailDropdownOptions(compose).map(o => o.rawText),
+        firstPickerSlotHtml:  picker?.querySelector?.(".item-slot")?.outerHTML || "",
+        selectedCardHtml:     document.querySelector(".mail-item-card")?.outerHTML || "",
+      };
+      console.log("[Loot Helper Mail Debug]", info);
+      return info;
+    },
+    copy: async () => {
+      const text = JSON.stringify(window.LH_MAIL_DEBUG.dump(), null, 2);
+      try { await navigator.clipboard.writeText(text); } catch {}
+      return text;
+    },
+  };
+
+  /**************************************************************************
    * RENDER — Team Tab
    **************************************************************************/
 
@@ -2493,8 +3360,18 @@
     }
 
     const filterKeys = [...state.filters.keys()];
+    const sendPlan   = buildTeamSendPlan();
 
-    let html = "";
+    let html = `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;">
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+        <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team Top Picks</span>
+        <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · one best teammate per item</span>
+        ${state.teamSendStatus ? `<span style="color:${state.teamSendStatus.startsWith("Sent") ? "#4ade80" : (state.teamSendStatus.startsWith("Sending") || state.teamSendStatus.startsWith("Attaching")) ? "#93c5fd" : "#fca5a5"};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
+      </div>
+      <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Open Mail > New Mail, attach all Top Picks for each teammate, then send one mail per teammate">
+        📬 ${state.teamSendBusy ? "Sending…" : "Send Top Picks"}
+      </button>
+    </div>`;
     for (const profile of profiles) {
       const eqMap      = profile.equippedMap;
       const eqWeapon   = Object.values(eqMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
@@ -2541,7 +3418,7 @@
         </div>
         <div class="sg-cat-body${isOpen ? "" : " collapsed"}">
           ${topItems.length
-            ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile(profile))).join("")
+            ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile(profile), { teamSendProfileId: profile.playerId })).join("")
             : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is a Top Pick for ${esc(profile.username)} right now.</div>`}
         </div>
       </div>`;
@@ -2807,6 +3684,47 @@
           if (catKey) state.catOpen[catKey] = !nowCollapsed;
         });
       });
+
+      body.querySelectorAll("[data-sg-salvage-check]").forEach(chk => {
+        chk.addEventListener("change", () => {
+          const id = chk.dataset.sgSalvageCheck;
+          if (id) {
+            if (chk.checked) state.salvageSelectedIds.add(id);
+            else             state.salvageSelectedIds.delete(id);
+          }
+          render();
+        });
+      });
+
+      const selectSalvageBtn = body.querySelector("[data-sg-select-salvage]");
+      if (selectSalvageBtn) {
+        selectSalvageBtn.addEventListener("click", () => {
+          state.highlightCats.add("sal");
+          applyBagHighlights();
+          render();
+        });
+      }
+
+      const clearSalvageBtn = body.querySelector("[data-sg-clear-salvage]");
+      if (clearSalvageBtn) {
+        clearSalvageBtn.addEventListener("click", () => {
+          state.highlightCats.delete("sal");
+          state.salvageSelectedIds.clear();
+          applyBagHighlights();
+          render();
+        });
+      }
+
+      const salvageSelectedBtn = body.querySelector("[data-sg-salvage-selected]");
+      if (salvageSelectedBtn) {
+        salvageSelectedBtn.addEventListener("click", () => {
+          salvageSelectedItems().catch(err => {
+            state.salvageBusy = false;
+            state.salvageStatus = err?.message || String(err);
+            render();
+          });
+        });
+      }
     }
 
     if (state.activeTab==="market") {
@@ -2858,6 +3776,31 @@
             saveTeamProfiles();
             render();
           }
+        });
+      });
+
+      const sendTopBtn = body.querySelector("[data-sg-team-send-top]");
+      if (sendTopBtn) {
+        sendTopBtn.addEventListener("click", e => {
+          e.preventDefault();
+          e.stopPropagation();
+          sendTeamTopPicks().catch(err => {
+            state.teamSendBusy   = false;
+            state.teamSendStatus = err?.message || String(err);
+            render();
+          });
+        });
+      }
+
+      body.querySelectorAll("[data-sg-team-send-one]").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.preventDefault();
+          e.stopPropagation();
+          sendSingleTeamTopPick(btn.dataset.sgTeamSendOne, btn.dataset.itemId).catch(err => {
+            state.teamSendBusy   = false;
+            state.teamSendStatus = err?.message || String(err);
+            render();
+          });
         });
       });
     }
