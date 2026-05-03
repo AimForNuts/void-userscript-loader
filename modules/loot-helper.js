@@ -279,12 +279,30 @@
   // Pending inspect data keyed by playerId (captured from fetch intercept)
   const pendingInspect = {};
 
-  // Hook fetch to capture /api/player/{id}/inspect responses
+  // Hook fetch to capture inspect responses, auth headers, mail/salvage endpoints
   (function hookInspectFetch() {
     const _orig = window.fetch;
     window.fetch = async function(...args) {
       const url = typeof args[0] === "string" ? args[0] : (args[0]?.url ?? "");
+      if (/\/api\//i.test(url)) rememberApiAuthFromFetchArgs(args);
       const res = await _orig.apply(this, args);
+      const method = String(args[1]?.method || args[0]?.method || "GET").toUpperCase();
+      if (/\/api\/mail/i.test(url) && ["POST","PUT","PATCH"].includes(method)) {
+        let parsed = null;
+        try {
+          const body = args[1]?.body || args[0]?.body || "";
+          parsed = typeof body === "string" ? JSON.parse(body || "{}") : null;
+        } catch {}
+        rememberMailEndpoint(url, parsed, method);
+      }
+      if (/salvage/i.test(url) && ["POST","PUT","PATCH","DELETE"].includes(method)) {
+        let parsed = null;
+        try {
+          const body = args[1]?.body || args[0]?.body || "";
+          parsed = typeof body === "string" ? JSON.parse(body || "{}") : null;
+        } catch {}
+        rememberSalvageEndpoint(url, parsed, method);
+      }
       const m = url.match(/\/api\/player\/([^/?]+)\/inspect/);
       if (m) {
         res.clone().json().then(data => {
@@ -296,6 +314,75 @@
       return res;
     };
   })();
+
+  const API_AUTH_HEADERS_KEY = "voididle.sg.apiAuthHeaders.v1";
+
+  function headersToPlainObject(headersLike) {
+    const out = {};
+    if (!headersLike) return out;
+    if (typeof headersLike.entries === "function") {
+      for (const [k, v] of headersLike.entries()) out[k.toLowerCase()] = v;
+    } else if (typeof headersLike === "object") {
+      for (const [k, v] of Object.entries(headersLike)) out[String(k).toLowerCase()] = v;
+    }
+    return out;
+  }
+
+  function rememberApiAuthHeaders(headersLike) {
+    const h = headersToPlainObject(headersLike);
+    const auth = h.authorization || h["x-auth-token"] || h["x-access-token"] || h["x-supabase-auth"] || h["apikey"];
+    if (!auth) return;
+    const keep = {};
+    for (const key of ["authorization","x-auth-token","x-access-token","x-supabase-auth","apikey","x-csrf-token","x-xsrf-token"]) {
+      if (h[key]) keep[key] = h[key];
+    }
+    try { localStorage.setItem(API_AUTH_HEADERS_KEY, JSON.stringify({ headers: keep, savedAt: Date.now() })); } catch {}
+  }
+
+  function rememberApiAuthFromFetchArgs(args) {
+    try {
+      const initHeaders = args?.[1]?.headers;
+      const requestHeaders = args?.[0]?.headers;
+      rememberApiAuthHeaders(initHeaders || requestHeaders);
+    } catch {}
+  }
+
+  function getApiAuthHeaders() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(API_AUTH_HEADERS_KEY) || "null");
+      if (saved?.headers && typeof saved.headers === "object") {
+        const out = {};
+        for (const [key, value] of Object.entries(saved.headers)) out[key] = value;
+        return out;
+      }
+    } catch {}
+    return {};
+  }
+
+  async function postJson(url, body, method = "POST") {
+    const authHeaders = getApiAuthHeaders();
+    const res = await fetch(url, {
+      method,
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text().catch(() => "");
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch {}
+    if (!res.ok || json?.ok === false || json?.success === false) {
+      const msg = json?.error || json?.message || text || `${res.status} ${res.statusText}`;
+      throw new Error(msg);
+    }
+    return json ?? { ok: true, raw: text };
+  }
+
+  function compactItemLabel(item) {
+    if (!item) return "Unknown item";
+    const forge = item.forge ? `${item.forge} ` : "";
+    const plus  = item.forgeLevel ? ` +${item.forgeLevel}` : "";
+    return `${forge}${item.name}${plus}`.trim();
+  }
 
   function parseInspectCharStats(data) {
     const src = (data.stats && typeof data.stats === "object") ? data.stats : data;
@@ -468,6 +555,8 @@
     marketItems: [], marketRawData: [], marketVisible: false, marketHideFuture: false,
     marketCtxPlayerId: null,
     marketCtxMwt: 1,
+    teamSendStatus: "", teamSendBusy: false,
+    salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(),
   };
 
   /**************************************************************************
