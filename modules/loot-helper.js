@@ -2547,6 +2547,190 @@
   }
 
   /**************************************************************************
+   * SALVAGE
+   **************************************************************************/
+
+  const SALVAGE_STORAGE_KEY          = "sgSalvageLearnedEndpoint";
+  const SALVAGE_TEMPLATE_STORAGE_KEY = "sgSalvageLearnedTemplateV1";
+
+  function getSelectedSalvageItems() {
+    const liveIds = new Set(state.bagItems.map(i => String(i.id)));
+    for (const id of [...state.salvageSelectedIds]) {
+      if (!liveIds.has(String(id))) state.salvageSelectedIds.delete(id);
+    }
+    return state.bagItems.filter(item => state.salvageSelectedIds.has(String(item.id)));
+  }
+
+  function getHighlightedSalvageItems() {
+    if (!state.highlightCats.size) return [];
+    return state.bagItems.filter(item => item && item.id && state.highlightCats.has(item.cat));
+  }
+
+  function getSalvageTargetItems() {
+    const byId = new Map();
+    for (const item of getHighlightedSalvageItems()) byId.set(String(item.id), item);
+    for (const item of getSelectedSalvageItems())    byId.set(String(item.id), item);
+    return [...byId.values()];
+  }
+
+  function rememberSalvageEndpoint(url, bodyOrKeys = null, method = "POST") {
+    try {
+      const keys = Array.isArray(bodyOrKeys)
+        ? bodyOrKeys
+        : (bodyOrKeys && typeof bodyOrKeys === "object" ? Object.keys(bodyOrKeys) : []);
+      localStorage.setItem(SALVAGE_STORAGE_KEY, JSON.stringify({ url, method, bodyKeys: keys, savedAt: Date.now() }));
+      if (bodyOrKeys && typeof bodyOrKeys === "object") {
+        localStorage.setItem(SALVAGE_TEMPLATE_STORAGE_KEY, JSON.stringify({ url, method, body: bodyOrKeys, savedAt: Date.now() }));
+      }
+    } catch {}
+  }
+
+  function getStoredSalvageTemplate() {
+    try { return JSON.parse(localStorage.getItem(SALVAGE_TEMPLATE_STORAGE_KEY) || "null"); } catch { return null; }
+  }
+
+  function _cloneJson(x) {
+    try { return JSON.parse(JSON.stringify(x)); } catch { return x; }
+  }
+
+  function _rewriteLearnedSalvagePayload(templateBody, item) {
+    const itemId = item.id;
+    const rewrite = (value, key = "") => {
+      const k = String(key || "");
+      if (/^(itemid|iteminstanceid|inventoryitemid|id)$/i.test(k)) return itemId;
+      if (/^(itemids|iteminstanceids|inventoryitemids|ids)$/i.test(k)) return [itemId];
+      if (/^(quantity|qty|amount|count)$/i.test(k)) return 1;
+      if (Array.isArray(value)) {
+        if (/^(items|itemids|inventoryitems|salvageitems)$/i.test(k)) {
+          const first = value[0];
+          if (first && typeof first === "object") return [rewrite(first, k)];
+          return [itemId];
+        }
+        return value.map(v => rewrite(v, k));
+      }
+      if (value && typeof value === "object") {
+        const out = {};
+        for (const [childKey, childVal] of Object.entries(value)) out[childKey] = rewrite(childVal, childKey);
+        if (/^(items|inventoryitems|salvageitems)$/i.test(k) && !Object.keys(out).some(x => /item|id/i.test(x))) {
+          out.itemId = itemId;
+          out.quantity = 1;
+        }
+        return out;
+      }
+      return value;
+    };
+    return rewrite(_cloneJson(templateBody));
+  }
+
+  function addSalvageAttempt(attempts, url, payload, method = "POST", learned = false) {
+    if (!url || attempts.some(a => a.url === url && JSON.stringify(a.body) === JSON.stringify(payload))) return;
+    attempts.push({ url, method, body: payload, learned });
+  }
+
+  function buildSalvageAttempts(item) {
+    const itemId = item.id;
+    const attempts = [];
+    const learnedTemplate = getStoredSalvageTemplate();
+    if (learnedTemplate?.url && learnedTemplate?.body) {
+      addSalvageAttempt(attempts, learnedTemplate.url, _rewriteLearnedSalvagePayload(learnedTemplate.body, item), learnedTemplate.method || "POST", true);
+    }
+    [
+      ["/api/inventory/salvage-selected", { itemIds: [itemId] }],
+      ["/api/inventory/salvage",          { itemId, quantity: 1 }],
+      ["/api/inventory/salvage",          { itemIds: [itemId] }],
+      ["/api/inventory/salvage-item",     { itemId, quantity: 1 }],
+      ["/api/inventory/salvageItem",      { itemId, quantity: 1 }],
+      ["/api/item/salvage",               { itemId, quantity: 1 }],
+      ["/api/items/salvage",              { itemIds: [itemId] }],
+      ["/api/equipment/salvage",          { inventoryItemId: itemId, quantity: 1 }],
+      ["/api/inventory/sell",             { itemId, quantity: 1 }],
+    ].forEach(([url, body]) => addSalvageAttempt(attempts, url, body));
+    return attempts;
+  }
+
+  async function salvageItemsBatch(items) {
+    const itemIds = items.map(item => String(item.id)).filter(Boolean);
+    if (!itemIds.length) return { ok: true };
+    const result = await postJson("/api/inventory/salvage-selected", { itemIds });
+    rememberSalvageEndpoint("/api/inventory/salvage-selected", { itemIds }, "POST");
+    return result;
+  }
+
+  async function salvageOneItem(item) {
+    const attempts = buildSalvageAttempts(item);
+    let lastError = null;
+    for (const attempt of attempts) {
+      try {
+        const result = await postJson(attempt.url, attempt.body, attempt.method || "POST");
+        if (attempt.learned) rememberSalvageEndpoint(attempt.url, attempt.body, attempt.method || "POST");
+        return result;
+      } catch (err) { lastError = err; continue; }
+    }
+    throw lastError || new Error("No salvage endpoint accepted the request. Manually salvage one cheap item once while the script is active so it can learn the real endpoint.");
+  }
+
+  async function salvageSelectedItems() {
+    if (state.salvageBusy) return;
+    const items = getSalvageTargetItems();
+    if (!items.length) {
+      state.salvageStatus = "No highlighted/checked items to salvage.";
+      render();
+      return;
+    }
+    const preview = items.slice(0, 20).map(item => `${item.rec?.label || ""} ${compactItemLabel(item)} · ${item.rarity} · ${item.slotType}`).join("\n");
+    const more = items.length > 20 ? `\n…plus ${items.length - 20} more` : "";
+    const ok = window.confirm(`Salvage ${items.length} highlighted/checked item(s)?\n\n${preview}${more}`);
+    if (!ok) return;
+
+    state.salvageBusy = true;
+    state.salvageStatus = `Salvaging ${items.length} item(s)…`;
+    render();
+
+    const salvaged = [];
+    const failed   = [];
+
+    try {
+      const result    = await salvageItemsBatch(items);
+      salvaged.push(...items);
+      for (const item of items) state.salvageSelectedIds.delete(String(item.id));
+
+      const goldGained = Number(result?.goldGained || result?.gold || 0);
+      const matsGained = result?.materialsGained || result?.materials || null;
+      let extra = goldGained ? ` · +${fmt(goldGained)}g` : "";
+      if (matsGained && typeof matsGained === "object") {
+        const mats = Object.entries(matsGained).map(([k, v]) => `${v} ${k}`).join(", ");
+        if (mats) extra += ` · ${mats}`;
+      }
+      state.salvageStatus = `Salvaged ${salvaged.length} item(s)${extra}.`;
+    } catch (batchErr) {
+      console.warn("[Loot Helper] Batch salvage failed, falling back to per-item salvage", batchErr);
+      for (const item of items) {
+        try {
+          await salvageOneItem(item);
+          salvaged.push(item);
+          state.salvageSelectedIds.delete(String(item.id));
+        } catch (err) {
+          failed.push({ item, error: err?.message || String(err) });
+        }
+      }
+      state.salvageStatus = failed.length
+        ? `Salvaged ${salvaged.length}/${items.length}. Failed: ${failed.slice(0, 3).map(f => `${compactItemLabel(f.item)} (${f.error})`).join("; ")}${failed.length > 3 ? "…" : ""}`
+        : `Salvaged ${salvaged.length} item(s).`;
+      if (failed.length) console.warn("[Loot Helper] Salvage failures", failed);
+    }
+
+    if (salvaged.length) {
+      const done = new Set(salvaged.map(item => String(item.id)));
+      state.bagItems    = state.bagItems.filter(item => !done.has(String(item.id)));
+      state.bagItemsRaw = state.bagItemsRaw.filter(item => !done.has(String(item.id)));
+      applyBagHighlights();
+    }
+
+    state.salvageBusy = false;
+    render();
+  }
+
+  /**************************************************************************
    * RENDER — Team Tab
    **************************************************************************/
 
