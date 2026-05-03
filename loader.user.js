@@ -1132,8 +1132,50 @@
       const state = getPanelState(app, id);
       if (!state) return;
 
-      state.enabled = !!enabled;
-      state.open = !!enabled && !!app.settings.openScriptsAutomatically;
+      if (!enabled) {
+        // Destroy the running module
+        const record = ModuleRegistry.get(id);
+        if (record?.module) {
+          try { record.module.destroy?.(); } catch (err) {
+            logger.warn(`destroy() threw for ${id}:`, err.message);
+          }
+        }
+        app.modules.delete(id);
+        ModuleRegistry.delete(id);
+
+        // Clear all storage for this module
+        freeModuleMemory(id);
+
+        // Persist the disabled state
+        ModuleLoader.saveUserSetting(id, false);
+
+        state.enabled = false;
+        state.open = false;
+      } else {
+        // Persist before attempting load so a reload failure doesn't desync state
+        ModuleLoader.saveUserSetting(id, true);
+        state.enabled = true;
+        state.open = !!app.settings.openScriptsAutomatically;
+
+        // Re-fetch and re-init the module in this session
+        ModuleLoader.reload(app, id).then(result => {
+          if (!result.ok) {
+            logger.warn(`Failed to re-enable ${id}:`, result.error);
+            state.enabled = false;
+            ModuleLoader.saveUserSetting(id, false);
+          }
+          this.renderMaster(app);
+          this.renderTray(app);
+          PanelStorage.save(app.settings);
+        });
+
+        // Update UI immediately — reload is async
+        this.applyPanel(app, id);
+        this.renderMaster(app);
+        this.renderTray(app);
+        PanelStorage.save(app.settings);
+        return;
+      }
 
       this.applyPanel(app, id);
       this.renderMaster(app);
