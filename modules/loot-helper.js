@@ -3080,7 +3080,7 @@
   function getMailSlotOrderItems() {
     const weaponTypes    = new Set(["sword","bow","spear","fan","harp","staff","wand","dagger","axe","mace"]);
     const accessoryTypes = new Set(["ring","amulet"]);
-    const raw = (state.bagItemsRaw || []).filter(item => item && item.id && !item.equippedSlot && !item.is_locked && item.type !== "rune");
+    const raw = (state.bagItemsRaw || []).filter(item => item && item.id && !item.equippedSlot && !item.is_locked && String(item.type || "").toLowerCase() !== "rune");
     return [
       ...raw.filter(item =>  weaponTypes.has(String(item.type || "").toLowerCase())),
       ...raw.filter(item => !weaponTypes.has(String(item.type || "").toLowerCase()) && !accessoryTypes.has(String(item.type || "").toLowerCase())),
@@ -3269,32 +3269,35 @@
       groups.get(key).entries.push(entry);
     }
 
-    for (const group of groups.values()) {
-      try {
-        state.teamSendStatus = `Attaching ${group.entries.length} item(s) for ${group.profile.username}…`;
-        render();
-        await sendTeamMailViaDom(group.profile, group.entries.map(e => e.item));
-        sent.push(...group.entries);
-      } catch (err) {
-        console.warn("[Loot Helper] Grouped team mail send failed; falling back to one item per mail", { group, err });
-        for (const entry of group.entries) {
-          try {
-            await sendOneTeamMail(entry.profile, entry.item);
-            sent.push(entry);
-          } catch (oneErr) {
-            failed.push({ ...entry, error: oneErr?.message || err?.message || String(oneErr || err) });
+    try {
+      for (const group of groups.values()) {
+        try {
+          state.teamSendStatus = `Attaching ${group.entries.length} item(s) for ${group.profile.username}…`;
+          render();
+          await sendTeamMailViaDom(group.profile, group.entries.map(e => e.item));
+          sent.push(...group.entries);
+        } catch (err) {
+          console.warn("[Loot Helper] Grouped team mail send failed; falling back to one item per mail", { group, err });
+          for (const entry of group.entries) {
+            try {
+              await sendOneTeamMail(entry.profile, entry.item);
+              sent.push(entry);
+            } catch (oneErr) {
+              failed.push({ ...entry, error: oneErr?.message || String(oneErr) });
+            }
           }
         }
       }
+
+      state.teamSendStatus = failed.length
+        ? `Sent ${sent.length}/${plan.length}. Failed: ${failed.slice(0, 3).map(f => `${f.profile.username} (${f.error})`).join("; ")}${failed.length > 3 ? "…" : ""}`
+        : `Sent ${sent.length} item(s).`;
+
+      if (failed.length) console.warn("[Loot Helper] Team mail send failures", failed);
+    } finally {
+      state.teamSendBusy = false;
+      render();
     }
-
-    state.teamSendBusy   = false;
-    state.teamSendStatus = failed.length
-      ? `Sent ${sent.length}/${plan.length}. Failed: ${failed.slice(0, 3).map(f => `${f.profile.username} (${f.error})`).join("; ")}${failed.length > 3 ? "…" : ""}`
-      : `Sent ${sent.length} item(s).`;
-
-    if (failed.length) console.warn("[Loot Helper] Team mail send failures", failed);
-    render();
   }
 
   window.LH_MAIL_DEBUG = window.LH_MAIL_DEBUG || {
