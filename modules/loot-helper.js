@@ -2036,6 +2036,25 @@
       }).join("")}
     </div>`;
 
+    {
+      const checkedSalvageCount    = getSelectedSalvageItems().length;
+      const highlightedSalvageCount = getHighlightedSalvageItems().length;
+      const selectedSalvageCount   = getSalvageTargetItems().length;
+      const salvageRecCount        = state.bagItems.filter(i => i.cat === "sal").length;
+      html += `<div class="sg-hl-toolbar" style="border-top:1px solid rgba(255,255,255,.04);padding-top:5px;align-items:center;">
+        <span class="sg-hl-label">Salvage:</span>
+        <button class="sg-mode-btn" data-sg-select-salvage ${(!salvageRecCount || state.salvageBusy) ? "disabled" : ""}
+          style="${(!salvageRecCount || state.salvageBusy) ? "opacity:.45;cursor:not-allowed;" : "color:#fca5a5;border-color:#ef4444;"}"
+          title="Highlight the Salvage recommendation category">Highlight Salvage (${salvageRecCount})</button>
+        <button class="sg-mode-btn" data-sg-clear-salvage ${((!checkedSalvageCount && !highlightedSalvageCount) || state.salvageBusy) ? "disabled" : ""}
+          style="${((!checkedSalvageCount && !highlightedSalvageCount) || state.salvageBusy) ? "opacity:.45;cursor:not-allowed;" : ""}">Clear</button>
+        <button class="sg-mode-btn" data-sg-salvage-selected ${(!selectedSalvageCount || state.salvageBusy) ? "disabled" : ""}
+          style="${(!selectedSalvageCount || state.salvageBusy) ? "opacity:.45;cursor:not-allowed;" : "color:#fca5a5;border-color:#ef4444;background:rgba(239,68,68,.08);"}"
+          title="Salvage gear items selected by the Highlight buttons, plus any checked items">💾 ${state.salvageBusy ? "Salvaging…" : `Salvage Highlighted (${selectedSalvageCount})`}</button>
+        ${state.salvageStatus ? `<span style="font-size:10px;line-height:1.25;color:${state.salvageStatus.startsWith("Salvaged") ? "#4ade80" : state.salvageStatus.startsWith("Salvaging") ? "#93c5fd" : "#fca5a5"};">${esc(state.salvageStatus)}</span>` : ""}
+      </div>`;
+    }
+
     if (!state.bagItems.length) {
       html += `<div class="sg-hint">Open <strong>Inventory</strong><br>to load items.</div>`;
       return html;
@@ -2453,7 +2472,7 @@
     return `<div class="sg-item-deltas">${lines.join("")}</div>`;
   }
 
-  function renderItemCard(item, ctx = state) {
+  function renderItemCard(item, ctx = state, opts = {}) {
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
@@ -2463,12 +2482,16 @@
     const bumpCol   = adjResult?.mode === "defensive" ? "#60a5fa" : "#f97316";
     const bumpLabel = adjResult?.mode === "defensive" ? "EHP" : "DPS";
     const bumpNote  = adjResult ? `<span title="${bumpLabel}-Anpassung aktiv (${adjResult.bump>0?"+":""}${adjResult.bump} Score)" style="color:${bumpCol};font-size:9px;margin-left:2px;">${bumpIcon}</span>` : "";
+    const teamSendButton = opts.teamSendProfileId
+      ? `<button type="button" class="sg-btn" data-sg-team-send-one="${esc(opts.teamSendProfileId)}" data-item-id="${esc(item.id)}" ${state.teamSendBusy ? "disabled" : ""} style="padding:1px 6px;font-size:9px;margin-left:4px;${state.teamSendBusy ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send only this item to this teammate through Mail">📬 Send this</button>`
+      : "";
     const badges    = [
       `<span class="sg-badge ${dispRec.cls}">${esc(dispRec.label)}</span>${bumpNote}`,
       `<span class="sg-badge sg-badge-shard">💎 ${item.shards}</span>`,
       item.isLegacyStar ? `<span class="sg-badge sg-badge-legacy">★ Legacy</span>` : "",
       multiHtml(item),
       item.classRestricted ? `<span class="sg-badge sg-badge-restricted">🔒 Wrong type</span>` : "",
+      teamSendButton,
     ].filter(Boolean).join("");
 
     const icon = ITEM_ICONS[item.weaponSubType] ?? "";
@@ -2486,6 +2509,7 @@
       <div style="display:flex;gap:6px;align-items:flex-start;">
         <div style="flex:1;min-width:0;">
           <div class="sg-item-head">
+            ${!opts.teamSendProfileId ? `<label title="Select for salvage" style="display:inline-flex;align-items:center;margin-right:3px;cursor:pointer;"><input type="checkbox" data-sg-salvage-check="${esc(item.id)}" ${state.salvageSelectedIds.has(String(item.id)) ? "checked" : ""} style="width:12px;height:12px;accent-color:#ef4444;cursor:pointer;"></label>` : ""}
             ${icon?`<span class="sg-type-icon">${icon}</span>`:""}
             ${item.forge?`<span style="color:#facc15;font-size:11px;">${esc(item.forge)}</span>`:""}
             <span class="sg-item-name" style="color:${color};">${esc(item.name)}${forgeStr?` <span style="color:#64748b;font-weight:400;">${esc(forgeStr)}</span>`:""}</span>
@@ -3059,6 +3083,47 @@
           if (catKey) state.catOpen[catKey] = !nowCollapsed;
         });
       });
+
+      body.querySelectorAll("[data-sg-salvage-check]").forEach(chk => {
+        chk.addEventListener("change", () => {
+          const id = chk.dataset.sgSalvageCheck;
+          if (id) {
+            if (chk.checked) state.salvageSelectedIds.add(id);
+            else             state.salvageSelectedIds.delete(id);
+          }
+          render();
+        });
+      });
+
+      const selectSalvageBtn = body.querySelector("[data-sg-select-salvage]");
+      if (selectSalvageBtn) {
+        selectSalvageBtn.addEventListener("click", () => {
+          state.highlightCats.add("sal");
+          applyBagHighlights();
+          render();
+        });
+      }
+
+      const clearSalvageBtn = body.querySelector("[data-sg-clear-salvage]");
+      if (clearSalvageBtn) {
+        clearSalvageBtn.addEventListener("click", () => {
+          state.highlightCats.delete("sal");
+          state.salvageSelectedIds.clear();
+          applyBagHighlights();
+          render();
+        });
+      }
+
+      const salvageSelectedBtn = body.querySelector("[data-sg-salvage-selected]");
+      if (salvageSelectedBtn) {
+        salvageSelectedBtn.addEventListener("click", () => {
+          salvageSelectedItems().catch(err => {
+            state.salvageBusy = false;
+            state.salvageStatus = err?.message || String(err);
+            render();
+          });
+        });
+      }
     }
 
     if (state.activeTab==="market") {
