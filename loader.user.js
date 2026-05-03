@@ -1050,6 +1050,15 @@
         });
       });
 
+      body.querySelectorAll('[data-free-memory]').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          freeModuleMemory(btn.dataset.freeMemory);
+          this.renderMaster(app);
+        });
+      });
+
       body.querySelector('[data-action="run-scripts"]').addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1248,6 +1257,8 @@
       ? '<div class="vim-muted" style="font-size:10px;margin-top:2px;">Disabled in manifest</div>'
       : '';
 
+    const kb = formatStorageBytes(getModuleStorageBytes(entry.id));
+
     return `
     <div class="vim-row">
       <div class="vim-row-main">
@@ -1255,10 +1266,14 @@
         <div class="vim-muted">${escapeHtml(entry.description || '')}</div>
         ${disabledBadge}
       </div>
-      <label class="vim-switch-row">
-        <input type="checkbox" data-module-toggle="${escapeHtml(entry.id)}" ${state.enabled ? "checked" : ""} />
-        <span>Enabled</span>
-      </label>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <span class="vim-muted" style="font-size:10px;white-space:nowrap;">${escapeHtml(kb)}</span>
+        <button type="button" class="vim-btn" style="font-size:10px;padding:3px 7px;" data-free-memory="${escapeHtml(entry.id)}">Free</button>
+        <label class="vim-switch-row">
+          <input type="checkbox" data-module-toggle="${escapeHtml(entry.id)}" ${state.enabled ? "checked" : ""} />
+          <span>Enabled</span>
+        </label>
+      </div>
     </div>
   `;
   }
