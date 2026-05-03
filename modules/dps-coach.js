@@ -93,6 +93,8 @@
         };
 
         let appRef = null;
+        const _unsubs = [];
+        let _tickInterval = null;
 
         const DPS_RELAY_STORAGE_KEY = "voididle.dpsCoach.relayRoomKey";
         const DPS_RELAY_SESSION_KEY = "voididle.dpsCoach.relaySession.v1";
@@ -4184,27 +4186,27 @@
                 syncSavedRelayRoomKeyToRelay(app);
                 installRelayDebugger(app);
 
-                app.events.on("fullState", (msg) => {
+                _unsubs.push(app.events.on("fullState", (msg) => {
                     handleFullState(msg);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("partyTick", (msg) => {
+                _unsubs.push(app.events.on("partyTick", (msg) => {
                     handlePartyTick(msg);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("auraRegen", (msg) => {
+                _unsubs.push(app.events.on("auraRegen", (msg) => {
                     handleAuraRegen(msg);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("auraXpGain", (msg) => {
+                _unsubs.push(app.events.on("auraXpGain", (msg) => {
                     handleAuraXpGain(msg);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("relay:ready", () => {
+                _unsubs.push(app.events.on("relay:ready", () => {
                     saveRelaySession({
                         roomKey: app.relay.state.roomKey || loadSavedRelayRoomKey(),
                         shouldReconnect: true,
@@ -4215,9 +4217,9 @@
                     sendRelayHelloIfReady(true);
                     sendTeamSnapshot(true);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("relay:status", (status) => {
+                _unsubs.push(app.events.on("relay:status", (status) => {
                     if (!status?.connected) {
                         state.relayHelloSent = false;
                     } else {
@@ -4225,13 +4227,13 @@
                     }
 
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("relay:peers", () => {
+                _unsubs.push(app.events.on("relay:peers", () => {
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("relay:hello", (msg) => {
+                _unsubs.push(app.events.on("relay:hello", (msg) => {
                     const name = msg.name || msg.username || msg.caster || "Ally";
 
                     if (!isPlaceholderPlayerName(name) && normalizeTeamName(name) !== normalizeTeamName(state.playerName)) {
@@ -4241,29 +4243,29 @@
                     sendRelayHelloIfReady();
                     sendTeamSnapshot(true);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("relay:teamSnapshot", (msg) => {
+                _unsubs.push(app.events.on("relay:teamSnapshot", (msg) => {
                     upsertTeamMemberFromSnapshot(msg);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("relay:abilityDamage", (msg) => {
+                _unsubs.push(app.events.on("relay:abilityDamage", (msg) => {
                     upsertTeamMemberFromLegacyAbilityMessage(msg);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("relay:abilityHealing", (msg) => {
+                _unsubs.push(app.events.on("relay:abilityHealing", (msg) => {
                     upsertTeamMemberFromLegacyAbilityMessage(msg);
                     queueRender(app);
-                });
+                }));
 
-                app.events.on("relay:abilityCast", (msg) => {
+                _unsubs.push(app.events.on("relay:abilityCast", (msg) => {
                     upsertTeamMemberFromLegacyAbilityMessage(msg);
                     queueRender(app);
-                });
+                }));
 
-                setInterval(() => {
+                _tickInterval = setInterval(() => {
                     if (
                         state.inCombat &&
                         state.lastCombatAt &&
@@ -4284,6 +4286,14 @@
 
             render() {
                 return render();
+            },
+
+            destroy() {
+                _unsubs.forEach(fn => fn());
+                _unsubs.length = 0;
+                clearInterval(_tickInterval);
+                _tickInterval = null;
+                appRef = null;
             },
         };
   }
