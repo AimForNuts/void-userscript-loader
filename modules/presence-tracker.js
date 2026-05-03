@@ -82,10 +82,13 @@
       return username ? { username, playerId } : null;
     }
 
+    const LIVE_THRESHOLD_MS = 5 * 60 * 1000;
+    function isLive(user) { return user.lastSeen && (Date.now() - user.lastSeen) < LIVE_THRESHOLD_MS; }
+
     async function sendHeartbeat() {
       if (!state.username || WORKER_URL === 'YOUR_WORKER_URL') return;
       try {
-        await fetch(WORKER_URL + '/heartbeat', {
+        await (window.__voidFetch || fetch)(WORKER_URL + '/heartbeat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + WRITE_SECRET },
           body: JSON.stringify({ username: state.username, playerId: state.playerId, version: definition.version }),
@@ -99,7 +102,7 @@
       state.error = '';
       renderIntoPanel();
       try {
-        const res = await fetch(WORKER_URL + '/presence', {
+        const res = await (window.__voidFetch || fetch)(WORKER_URL + '/presence', {
           headers: { 'Authorization': 'Bearer ' + READ_SECRET },
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -109,6 +112,22 @@
         state.error = 'Failed to load: ' + (e.message || e);
       } finally {
         state.loading = false;
+        renderIntoPanel();
+      }
+    }
+
+    async function clearPresence() {
+      try {
+        const res = await (window.__voidFetch || fetch)(WORKER_URL + '/clear', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + WRITE_SECRET },
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        state.users = [];
+        state.lastRefresh = new Date();
+      } catch (e) {
+        state.error = 'Failed to clear: ' + (e.message || e);
+      } finally {
         renderIntoPanel();
       }
     }
@@ -124,20 +143,26 @@
         return '<div style="padding:10px;color:#ffd1d1;font-size:12px">' + esc(state.error) + '</div>';
       }
       const users = state.users.slice().sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+      const liveCount = users.filter(isLive).length;
       const refreshedAt = state.lastRefresh ? state.lastRefresh.toLocaleTimeString() : 'never';
-      const rows = users.map(u =>
-        '<tr>'
-        + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07)">' + esc(u.username) + '</td>'
-        + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#aab8ce;font-size:10px">' + esc(u.playerId || '—') + '</td>'
-        + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#aab8ce;font-size:10px">' + esc(u.version || '—') + '</td>'
-        + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#7dffb2;font-size:10px">' + (u.lastSeen ? esc(timeAgo(u.lastSeen)) : '—') + '</td>'
-        + '</tr>'
-      ).join('') || '<tr><td colspan="4" style="padding:8px;color:#92a3bd;font-size:12px">No users online</td></tr>';
+      const rows = users.map(u => {
+        const live = isLive(u);
+        return '<tr>'
+          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07)">'
+          + '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + (live ? '#7dffb2' : '#4a5568') + ';margin-right:6px;vertical-align:middle"></span>'
+          + esc(u.username) + '</td>'
+          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#aab8ce;font-size:10px">' + esc(u.playerId || '—') + '</td>'
+          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#aab8ce;font-size:10px">' + esc(u.version || '—') + '</td>'
+          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:' + (live ? '#7dffb2' : '#aab8ce') + ';font-size:10px">' + (u.lastSeen ? esc(timeAgo(u.lastSeen)) : '—') + '</td>'
+          + '</tr>';
+      }).join('') || '<tr><td colspan="4" style="padding:8px;color:#92a3bd;font-size:12px">No users seen yet</td></tr>';
 
       return '<div style="padding:10px;font:12px/1.35 system-ui,sans-serif;color:#eaf4ff">'
-        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
-        + '<span style="font-weight:900">' + users.length + ' user' + (users.length !== 1 ? 's' : '') + ' online</span>'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">'
+        + '<span style="font-weight:900">' + users.length + ' seen</span>'
+        + '<span style="color:#7dffb2;font-size:11px">(' + liveCount + ' live)</span>'
         + '<button data-act="refresh" style="background:#111c31;border:1px solid #35506f;color:#eaf4ff;border-radius:8px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer">Refresh</button>'
+        + '<button data-act="clear" style="background:#1c1118;border:1px solid #6f3545;color:#ffd1d1;border-radius:8px;padding:3px 10px;font-size:11px;font-weight:800;cursor:pointer">Clear All</button>'
         + '<span style="font-size:10px;color:#aab8ce;margin-left:auto">Updated ' + esc(refreshedAt) + '</span>'
         + '</div>'
         + '<table style="width:100%;border-collapse:collapse">'
@@ -164,7 +189,10 @@
 
     function bindEvents(panel) {
       panel.querySelectorAll('[data-act]').forEach(btn => {
-        btn.onclick = () => { if (btn.dataset.act === 'refresh') fetchPresence(); };
+        btn.onclick = () => {
+          if (btn.dataset.act === 'refresh') fetchPresence();
+          else if (btn.dataset.act === 'clear') clearPresence();
+        };
       });
     }
 
@@ -209,7 +237,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-02.2',
+    version: '2026-05-03.1',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();
