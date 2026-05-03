@@ -2651,9 +2651,7 @@
   async function salvageItemsBatch(items) {
     const itemIds = items.map(item => String(item.id)).filter(Boolean);
     if (!itemIds.length) return { ok: true };
-    const result = await postJson("/api/inventory/salvage-selected", { itemIds });
-    rememberSalvageEndpoint("/api/inventory/salvage-selected", { itemIds }, "POST");
-    return result;
+    return postJson("/api/inventory/salvage-selected", { itemIds });
   }
 
   async function salvageOneItem(item) {
