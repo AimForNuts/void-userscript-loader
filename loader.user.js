@@ -6,7 +6,8 @@
 // @match        https://www.voididle.com/*
 // @match        https://voididle.com/*
 // @run-at       document-start
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      void-presence.josepsloliveira.workers.dev
 // ==/UserScript==
 
 (() => {
@@ -605,6 +606,30 @@
             }
         },
     };
+
+  // ─── GM FETCH BRIDGE ────────────────────────────────────────────────────────
+  // Exposes a fetch-compatible wrapper using GM_xmlhttpRequest so that modules
+  // (which run in global scope via new Function) can bypass the game's CSP.
+  window.__voidFetch = function (url, options = {}) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method:  options.method  || 'GET',
+        url,
+        headers: options.headers || {},
+        data:    options.body    || null,
+        onload(resp) {
+          const ok = resp.status >= 200 && resp.status < 300;
+          resolve({
+            ok,
+            status: resp.status,
+            json() { return Promise.resolve(JSON.parse(resp.responseText)); },
+          });
+        },
+        onerror()  { reject(new Error('Failed to fetch')); },
+        ontimeout(){ reject(new Error('Timeout')); },
+      });
+    });
+  };
 
   // ─── DOM HELPER ─────────────────────────────────────────────────────────────
   // Shared utilities passed to every module via appContext.dom.*

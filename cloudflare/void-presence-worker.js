@@ -37,8 +37,7 @@ export default {
         version: body.version || null,
         lastSeen: Date.now(),
       };
-      // TTL 300s: entry auto-expires 5 min after last heartbeat
-      await env.PRESENCE_KV.put(username, JSON.stringify(record), { expirationTtl: 300 });
+      await env.PRESENCE_KV.put(username, JSON.stringify(record));
       return new Response(JSON.stringify({ ok: true }), { headers: cors });
     }
 
@@ -54,6 +53,15 @@ export default {
         })
       );
       return new Response(JSON.stringify(entries.filter(Boolean)), { headers: cors });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/clear') {
+      if (secret !== env.WRITE_SECRET) {
+        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: cors });
+      }
+      const list = await env.PRESENCE_KV.list();
+      await Promise.all(list.keys.map(k => env.PRESENCE_KV.delete(k.name)));
+      return new Response(JSON.stringify({ ok: true, cleared: list.keys.length }), { headers: cors });
     }
 
     return new Response(JSON.stringify({ error: 'Not Found' }), { status: 404, headers: cors });
