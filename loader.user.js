@@ -132,6 +132,39 @@
     },
   };
 
+  function getModuleStorageBytes(id) {
+    const gamePrefix   = `voididle.module.${id}.`;
+    const sourcePrefix = `voididle.loader.module.${id}@`;
+    let bytes = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith(gamePrefix) || key.startsWith(sourcePrefix)) {
+        bytes += (localStorage.getItem(key)?.length ?? 0) * 2;
+      }
+    }
+    return bytes;
+  }
+
+  function formatStorageBytes(bytes) {
+    if (bytes === 0) return '0 KB';
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  function freeModuleMemory(id) {
+    const gamePrefix = `voididle.module.${id}.`;
+    const sourcePrefix = `voididle.loader.module.${id}@`;
+    const toDelete = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith(gamePrefix) || key.startsWith(sourcePrefix)) {
+        toDelete.push(key);
+      }
+    }
+    toDelete.forEach(k => localStorage.removeItem(k));
+  }
+
   // ─── EVENT BUS ──────────────────────────────────────────────────────────────
   function createEventBus() {
     const listeners = new Map();
