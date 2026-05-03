@@ -17,6 +17,8 @@
       captureRaw: true,
     };
 
+    let _detachSocketDebug = null;
+
     function clean(value) {
       return String(value ?? "").replace(/\s+/g, " ").trim();
     }
@@ -544,7 +546,7 @@
           footer: '',
         });
 
-        app.events.on("socket:debug", (entry) => {
+        _detachSocketDebug = app.events.on("socket:debug", (entry) => {
           if (!app.ui.isPanelEnabled(definition.id)) return;
           addEntry(entry);
           queueRender(app);
@@ -553,6 +555,11 @@
 
       render() {
         return render();
+      },
+
+      destroy() {
+        _detachSocketDebug?.();
+        _detachSocketDebug = null;
       },
     };
   }
