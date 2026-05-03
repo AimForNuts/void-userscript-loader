@@ -616,6 +616,10 @@
       render() {
         return render();
       },
+
+      destroy() {
+        // no timers or event subscriptions — nothing to tear down
+      },
     };
   }
 
