@@ -82,7 +82,7 @@
       return username ? { username, playerId } : null;
     }
 
-    const LIVE_THRESHOLD_MS = 5 * 60 * 1000;
+    const LIVE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
     function isLive(user) { return user.lastSeen && (Date.now() - user.lastSeen) < LIVE_THRESHOLD_MS; }
 
     async function sendHeartbeat() {
@@ -106,7 +106,13 @@
           headers: { 'Authorization': 'Bearer ' + READ_SECRET },
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
-        state.users = await res.json();
+        const fresh = await res.json();
+        const map = new Map(state.users.map(u => [u.username, u]));
+        for (const u of fresh) {
+          const existing = map.get(u.username);
+          if (!existing || u.lastSeen > (existing.lastSeen || 0)) map.set(u.username, u);
+        }
+        state.users = [...map.values()];
         state.lastRefresh = new Date();
       } catch (e) {
         state.error = 'Failed to load: ' + (e.message || e);
@@ -210,7 +216,7 @@
           state.username = user.username;
           state.playerId = user.playerId;
           sendHeartbeat();
-          heartbeatInterval = setInterval(sendHeartbeat, 2 * 60 * 1000);
+          heartbeatInterval = setInterval(sendHeartbeat, 60 * 60 * 1000);
         }
 
         if (state.username === OWNER) {
@@ -221,7 +227,7 @@
             render: () => render(),
           });
           fetchPresence();
-          refreshInterval = setInterval(fetchPresence, 30 * 1000);
+          refreshInterval = setInterval(fetchPresence, 30 * 60 * 1000);
         }
       },
 
@@ -237,7 +243,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-03.1',
+    version: '2026-05-03.2',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();
