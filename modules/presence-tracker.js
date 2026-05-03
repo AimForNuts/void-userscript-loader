@@ -88,7 +88,7 @@
     async function sendHeartbeat() {
       if (!state.username || WORKER_URL === 'YOUR_WORKER_URL') return;
       try {
-        await (window.__voidFetch || fetch)(WORKER_URL + '/heartbeat', {
+        await fetch(WORKER_URL + '/heartbeat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + WRITE_SECRET },
           body: JSON.stringify({ username: state.username, playerId: state.playerId, version: definition.version }),
@@ -102,7 +102,7 @@
       state.error = '';
       renderIntoPanel();
       try {
-        const res = await (window.__voidFetch || fetch)(WORKER_URL + '/presence', {
+        const res = await fetch(WORKER_URL + '/presence', {
           headers: { 'Authorization': 'Bearer ' + READ_SECRET },
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -118,7 +118,7 @@
 
     async function clearPresence() {
       try {
-        const res = await (window.__voidFetch || fetch)(WORKER_URL + '/clear', {
+        const res = await fetch(WORKER_URL + '/clear', {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + WRITE_SECRET },
         });
