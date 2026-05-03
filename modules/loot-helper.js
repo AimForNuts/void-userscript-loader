@@ -3341,8 +3341,18 @@
     }
 
     const filterKeys = [...state.filters.keys()];
+    const sendPlan   = buildTeamSendPlan();
 
-    let html = "";
+    let html = `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;">
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+        <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team Top Picks</span>
+        <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · one best teammate per item</span>
+        ${state.teamSendStatus ? `<span style="color:${state.teamSendStatus.startsWith("Sent") ? "#4ade80" : (state.teamSendStatus.startsWith("Sending") || state.teamSendStatus.startsWith("Attaching")) ? "#93c5fd" : "#fca5a5"};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
+      </div>
+      <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Open Mail > New Mail, attach all Top Picks for each teammate, then send one mail per teammate">
+        📬 ${state.teamSendBusy ? "Sending…" : "Send Top Picks"}
+      </button>
+    </div>`;
     for (const profile of profiles) {
       const eqMap      = profile.equippedMap;
       const eqWeapon   = Object.values(eqMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
@@ -3389,7 +3399,7 @@
         </div>
         <div class="sg-cat-body${isOpen ? "" : " collapsed"}">
           ${topItems.length
-            ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile(profile))).join("")
+            ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile(profile), { teamSendProfileId: profile.playerId })).join("")
             : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is a Top Pick for ${esc(profile.username)} right now.</div>`}
         </div>
       </div>`;
@@ -3747,6 +3757,31 @@
             saveTeamProfiles();
             render();
           }
+        });
+      });
+
+      const sendTopBtn = body.querySelector("[data-sg-team-send-top]");
+      if (sendTopBtn) {
+        sendTopBtn.addEventListener("click", e => {
+          e.preventDefault();
+          e.stopPropagation();
+          sendTeamTopPicks().catch(err => {
+            state.teamSendBusy   = false;
+            state.teamSendStatus = err?.message || String(err);
+            render();
+          });
+        });
+      }
+
+      body.querySelectorAll("[data-sg-team-send-one]").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.preventDefault();
+          e.stopPropagation();
+          sendSingleTeamTopPick(btn.dataset.sgTeamSendOne, btn.dataset.itemId).catch(err => {
+            state.teamSendBusy   = false;
+            state.teamSendStatus = err?.message || String(err);
+            render();
+          });
         });
       });
     }
