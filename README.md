@@ -19,8 +19,6 @@ Add an entry to `manifest.json` pointing to any hosted `.js` file.
 
 ### Misc
 
-**👁️ Presence Tracker** — Background-only module with no UI panel. Sends anonymised presence pings to a Cloudflare Worker so AimForNuts can see who is using the loader.
-
 **🛰️ WS Sniffer** — Captures live WebSocket frames (both inbound and outbound) with type and content filters. Built for world boss debugging; useful any time you need to inspect raw game traffic.
 
 **👑 Boss Tracker** — Tracks world boss spawn history, records which fighters participated, and maintains DPS leaderboards across sessions. Persists data locally so history survives page reloads.
