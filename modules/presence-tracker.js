@@ -6,7 +6,7 @@
     let heartbeatInterval = null;
     let refreshInterval = null;
 
-    const WORKER_URL = 'https://void-presence.josepsloliveira.workers.dev';
+    const WORKER_URL = 'https://void-presence.void-presence.workers.dev';
     const WRITE_SECRET = 'vp_w_0b34abb6aa390c112968735060164d73';
     const READ_SECRET = 'vp_r_c7d5a05bd4e73ab2450fe061c83dc820';
     const OWNER = 'AimForNuts';
