@@ -20,83 +20,15 @@
       lastRefresh: null,
     };
 
-    function getStoredAuthToken() {
-      const stores = [localStorage, sessionStorage];
-      const preferred = ['token', 'authToken', 'jwt', 'accessToken', 'voididle_token', 'voididle.auth', 'auth'];
-      const JWT_RE = /^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
-
-      function extractJwt(raw) {
-        raw = String(raw).trim();
-        if (JWT_RE.test(raw)) return raw;
-        if (/^Bearer\s+eyJ/.test(raw)) return raw.replace(/^Bearer\s+/i, '');
-        try {
-          const parsed = JSON.parse(raw);
-          for (const k of preferred) {
-            if (parsed?.[k] && /^eyJ/.test(String(parsed[k]))) return String(parsed[k]);
-          }
-        } catch {}
-        return null;
-      }
-
-      for (const store of stores) {
-        for (const key of preferred) {
-          const val = store.getItem(key);
-          if (!val) continue;
-          const jwt = extractJwt(val);
-          if (jwt) return jwt;
-        }
-      }
-
-      // Fallback: scan all storage keys for any JWT-shaped value (catches non-standard key names, e.g. Kiwi)
-      for (const store of stores) {
-        try {
-          for (let i = 0; i < store.length; i++) {
-            const key = store.key(i);
-            if (!key || preferred.includes(key)) continue;
-            const val = store.getItem(key);
-            if (!val) continue;
-            const jwt = extractJwt(val);
-            if (jwt) return jwt;
-          }
-        } catch {}
-      }
-
-      return null;
-    }
-
-    function decodeJWTPayload(token) {
+    async function getCurrentUser() {
       try {
-        const part = token.split('.')[1];
-        const padded = part + '==='.slice((part.length + 3) % 4 === 0 ? 0 : (part.length + 3) % 4);
-        return JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
-      } catch { return null; }
-    }
-
-    function getStoredUsername() {
-      const NAME_KEYS = ['username', 'playerName', 'displayName', 'player_name', 'display_name', 'name', 'user'];
-      const JWT_RE = /^eyJ/;
-      for (const store of [localStorage, sessionStorage]) {
-        for (const key of NAME_KEYS) {
-          try {
-            const val = store.getItem(key);
-            if (val && val.length < 64 && !JWT_RE.test(val) && !/^\{/.test(val)) return val.trim();
-          } catch {}
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.username) return { username: data.username, playerId: data.playerId || null };
         }
-      }
+      } catch {}
       return null;
-    }
-
-    function getCurrentUser() {
-      const token = getStoredAuthToken();
-      if (!token) return null;
-      const p = decodeJWTPayload(token);
-      if (!p) return null;
-      const username = p.username || p.name || p.preferred_username || p.display_name || getStoredUsername() || null;
-      const playerId = p.sub || p.id || p.userId || p.player_id || null;
-      if (username) return { username, playerId };
-      // Unknown username field — fall back to sub and ship full payload for diagnosis
-      const fallbackUsername = playerId ? 'unknown:' + playerId : 'unknown';
-      return { username: fallbackUsername, playerId, debugPayload: p };
     }
 
     const LIVE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
@@ -105,12 +37,10 @@
     async function sendHeartbeat() {
       if (!state.username || WORKER_URL === 'YOUR_WORKER_URL') return;
       try {
-        const body = { username: state.username, playerId: state.playerId, version: definition.version };
-        if (state.debugPayload) body.debugPayload = state.debugPayload;
         await fetch(WORKER_URL + '/heartbeat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + WRITE_SECRET },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ username: state.username, playerId: state.playerId, version: definition.version }),
         });
       } catch {}
     }
@@ -172,21 +102,14 @@
       const refreshedAt = state.lastRefresh ? state.lastRefresh.toLocaleTimeString() : 'never';
       const rows = users.map(u => {
         const live = isLive(u);
-        const debugRow = u.debugPayload
-          ? '<tr><td colspan="4" style="padding:4px 8px 8px 22px;border-bottom:1px solid rgba(255,255,255,.07)">'
-            + '<pre data-copy style="margin:0;padding:6px 8px;background:#0d1620;border:1px solid #35506f;border-radius:6px;font-size:10px;color:#ffd580;white-space:pre-wrap;word-break:break-all;cursor:pointer" title="Click to copy">'
-            + esc(JSON.stringify(u.debugPayload, null, 2)) + '</pre>'
-            + '<span style="font-size:9px;color:#aab8ce">^ unknown username — click JSON to copy</span>'
-            + '</td></tr>'
-          : '';
         return '<tr>'
-          + '<td style="padding:6px 8px;border-bottom:' + (u.debugPayload ? 'none' : '1px solid rgba(255,255,255,.07)') + '">'
+          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07)">'
           + '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + (live ? '#7dffb2' : '#4a5568') + ';margin-right:6px;vertical-align:middle"></span>'
           + esc(u.username) + '</td>'
-          + '<td style="padding:6px 8px;border-bottom:' + (u.debugPayload ? 'none' : '1px solid rgba(255,255,255,.07)') + ';color:#aab8ce;font-size:10px">' + esc(u.playerId || '—') + '</td>'
-          + '<td style="padding:6px 8px;border-bottom:' + (u.debugPayload ? 'none' : '1px solid rgba(255,255,255,.07)') + ';color:#aab8ce;font-size:10px">' + esc(u.version || '—') + '</td>'
-          + '<td style="padding:6px 8px;border-bottom:' + (u.debugPayload ? 'none' : '1px solid rgba(255,255,255,.07)') + ';color:' + (live ? '#7dffb2' : '#aab8ce') + ';font-size:10px">' + (u.lastSeen ? esc(timeAgo(u.lastSeen)) : '—') + '</td>'
-          + '</tr>' + debugRow;
+          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#aab8ce;font-size:10px">' + esc(u.playerId || '—') + '</td>'
+          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#aab8ce;font-size:10px">' + esc(u.version || '—') + '</td>'
+          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:' + (live ? '#7dffb2' : '#aab8ce') + ';font-size:10px">' + (u.lastSeen ? esc(timeAgo(u.lastSeen)) : '—') + '</td>'
+          + '</tr>';
       }).join('') || '<tr><td colspan="4" style="padding:8px;color:#92a3bd;font-size:12px">No users seen yet</td></tr>';
 
       return '<div style="padding:10px;font:12px/1.35 system-ui,sans-serif;color:#eaf4ff">'
@@ -226,9 +149,6 @@
           else if (btn.dataset.act === 'clear') clearPresence();
         };
       });
-      panel.querySelectorAll('[data-copy]').forEach(el => {
-        el.onclick = () => navigator.clipboard.writeText(el.textContent).catch(() => {});
-      });
     }
 
     return {
@@ -240,25 +160,24 @@
       init(app) {
         appRef = app;
 
-        const user = getCurrentUser();
-        if (user) {
+        getCurrentUser().then(user => {
+          if (!user) return;
           state.username = user.username;
           state.playerId = user.playerId;
-          state.debugPayload = user.debugPayload || null;
           sendHeartbeat();
           heartbeatInterval = setInterval(sendHeartbeat, 60 * 60 * 1000);
-        }
 
-        if (state.username === OWNER) {
-          app.ui.registerPanel({
-            id: definition.id,
-            title: definition.name,
-            icon: definition.icon || '👁️',
-            render: () => render(),
-          });
-          fetchPresence();
-          refreshInterval = setInterval(fetchPresence, 30 * 60 * 1000);
-        }
+          if (state.username === OWNER) {
+            app.ui.registerPanel({
+              id: definition.id,
+              title: definition.name,
+              icon: definition.icon || '👁️',
+              render: () => render(),
+            });
+            fetchPresence();
+            refreshInterval = setInterval(fetchPresence, 30 * 60 * 1000);
+          }
+        });
       },
 
       destroy() {
@@ -273,7 +192,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-03.2',
+    version: '2026-05-04.1',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();

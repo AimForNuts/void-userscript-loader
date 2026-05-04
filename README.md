@@ -19,8 +19,6 @@ Add an entry to `manifest.json` pointing to any hosted `.js` file.
 
 ### Misc
 
-**🔬 Debug Inspector** — Dev-only always-visible overlay that dumps decoded JWT payload, localStorage string candidates, and captured responses from auth/user network requests. Draggable. Has per-section and Copy All buttons. Disabled by default; enable in the manifest to use.
-
 **👁️ Presence Tracker** — Background-only module with no UI panel. Sends anonymised presence pings to a Cloudflare Worker so AimForNuts can see who is using the loader.
 
 **🛰️ WS Sniffer** — Captures live WebSocket frames (both inbound and outbound) with type and content filters. Built for world boss debugging; useful any time you need to inspect raw game traffic.

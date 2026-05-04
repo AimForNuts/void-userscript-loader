@@ -6,13 +6,6 @@ Developer reference for all modules in this loader. Each entry covers what the m
 
 ## Misc
 
-### 🔬 Debug Inspector
-**ID:** `debug-inspector` | **Category:** Misc | **File:** `modules/debug-inspector.js`
-
-Dev-only diagnostic overlay. Injects a fixed, draggable panel directly into `document.body` (not the tray) so it stays visible on mobile without opening any menu. On init it scans all `localStorage` and `sessionStorage` keys: JWT-shaped values are decoded and shown as JSON; short plain strings are listed as-is. It also hooks `window.fetch` to capture up to 20 responses from endpoints matching `/user|auth|login|me|profile|account/i`. Each section has a Copy button; a Copy All button at the bottom combines everything. Disabled and hidden in the manifest by default — enable it temporarily when diagnosing auth/username detection issues, then disable again.
-
----
-
 ### 👁️ Presence Tracker
 **ID:** `presence-tracker` | **Category:** Misc | **File:** `modules/presence-tracker.js`
 
