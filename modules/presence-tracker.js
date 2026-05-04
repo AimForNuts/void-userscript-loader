@@ -22,7 +22,9 @@
 
     async function getCurrentUser() {
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        const token = localStorage.getItem('authToken');
+        const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+        const res = await fetch('/api/auth/me', { headers });
         if (res.ok) {
           const data = await res.json();
           if (data.username) return { username: data.username, playerId: data.playerId || null };
@@ -194,7 +196,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-04.2',
+    version: '2026-05-04.3',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();
