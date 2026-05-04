@@ -20,23 +20,15 @@
       lastRefresh: null,
     };
 
-    function interceptAuthMe() {
-      return new Promise(resolve => {
-        const originalFetch = window.fetch;
-        window.fetch = async function (...args) {
-          const res = await originalFetch.apply(this, args);
-          const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-          if (/\/api\/auth\/me/.test(url)) {
-            window.fetch = originalFetch;
-            res.clone().json().then(data => {
-              resolve(data.username ? { username: data.username, playerId: data.playerId || null } : null);
-            }).catch(() => resolve(null));
-          }
-          return res;
-        };
-        // Give up after 30s if the request never fires
-        setTimeout(() => { window.fetch = originalFetch; resolve(null); }, 30000);
-      });
+    async function getCurrentUser() {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.username) return { username: data.username, playerId: data.playerId || null };
+        }
+      } catch {}
+      return null;
     }
 
     const LIVE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
@@ -176,7 +168,7 @@
           render: () => render(),
         });
 
-        interceptAuthMe().then(user => {
+        getCurrentUser().then(user => {
           if (!user) return;
           state.username = user.username;
           state.playerId = user.playerId;
@@ -202,7 +194,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-04.1',
+    version: '2026-05-04.2',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();
