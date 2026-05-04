@@ -72,12 +72,26 @@
       } catch { return null; }
     }
 
+    function getStoredUsername() {
+      const NAME_KEYS = ['username', 'playerName', 'displayName', 'player_name', 'display_name', 'name', 'user'];
+      const JWT_RE = /^eyJ/;
+      for (const store of [localStorage, sessionStorage]) {
+        for (const key of NAME_KEYS) {
+          try {
+            const val = store.getItem(key);
+            if (val && val.length < 64 && !JWT_RE.test(val) && !/^\{/.test(val)) return val.trim();
+          } catch {}
+        }
+      }
+      return null;
+    }
+
     function getCurrentUser() {
       const token = getStoredAuthToken();
       if (!token) return null;
       const p = decodeJWTPayload(token);
       if (!p) return null;
-      const username = p.username || p.name || p.preferred_username || p.display_name || null;
+      const username = p.username || p.name || p.preferred_username || p.display_name || getStoredUsername() || null;
       const playerId = p.sub || p.id || p.userId || p.player_id || null;
       if (username) return { username, playerId };
       // Unknown username field — fall back to sub and ship full payload for diagnosis
