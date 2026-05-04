@@ -79,7 +79,10 @@
       if (!p) return null;
       const username = p.username || p.name || p.preferred_username || p.display_name || null;
       const playerId = p.sub || p.id || p.userId || p.player_id || null;
-      return username ? { username, playerId } : null;
+      if (username) return { username, playerId };
+      // Unknown username field — fall back to sub and ship full payload for diagnosis
+      const fallbackUsername = playerId ? 'unknown:' + playerId : 'unknown';
+      return { username: fallbackUsername, playerId, debugPayload: p };
     }
 
     const LIVE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
@@ -88,10 +91,12 @@
     async function sendHeartbeat() {
       if (!state.username || WORKER_URL === 'YOUR_WORKER_URL') return;
       try {
+        const body = { username: state.username, playerId: state.playerId, version: definition.version };
+        if (state.debugPayload) body.debugPayload = state.debugPayload;
         await fetch(WORKER_URL + '/heartbeat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + WRITE_SECRET },
-          body: JSON.stringify({ username: state.username, playerId: state.playerId, version: definition.version }),
+          body: JSON.stringify(body),
         });
       } catch {}
     }
@@ -153,14 +158,21 @@
       const refreshedAt = state.lastRefresh ? state.lastRefresh.toLocaleTimeString() : 'never';
       const rows = users.map(u => {
         const live = isLive(u);
+        const debugRow = u.debugPayload
+          ? '<tr><td colspan="4" style="padding:4px 8px 8px 22px;border-bottom:1px solid rgba(255,255,255,.07)">'
+            + '<pre data-copy style="margin:0;padding:6px 8px;background:#0d1620;border:1px solid #35506f;border-radius:6px;font-size:10px;color:#ffd580;white-space:pre-wrap;word-break:break-all;cursor:pointer" title="Click to copy">'
+            + esc(JSON.stringify(u.debugPayload, null, 2)) + '</pre>'
+            + '<span style="font-size:9px;color:#aab8ce">^ unknown username — click JSON to copy</span>'
+            + '</td></tr>'
+          : '';
         return '<tr>'
-          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07)">'
+          + '<td style="padding:6px 8px;border-bottom:' + (u.debugPayload ? 'none' : '1px solid rgba(255,255,255,.07)') + '">'
           + '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + (live ? '#7dffb2' : '#4a5568') + ';margin-right:6px;vertical-align:middle"></span>'
           + esc(u.username) + '</td>'
-          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#aab8ce;font-size:10px">' + esc(u.playerId || '—') + '</td>'
-          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:#aab8ce;font-size:10px">' + esc(u.version || '—') + '</td>'
-          + '<td style="padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.07);color:' + (live ? '#7dffb2' : '#aab8ce') + ';font-size:10px">' + (u.lastSeen ? esc(timeAgo(u.lastSeen)) : '—') + '</td>'
-          + '</tr>';
+          + '<td style="padding:6px 8px;border-bottom:' + (u.debugPayload ? 'none' : '1px solid rgba(255,255,255,.07)') + ';color:#aab8ce;font-size:10px">' + esc(u.playerId || '—') + '</td>'
+          + '<td style="padding:6px 8px;border-bottom:' + (u.debugPayload ? 'none' : '1px solid rgba(255,255,255,.07)') + ';color:#aab8ce;font-size:10px">' + esc(u.version || '—') + '</td>'
+          + '<td style="padding:6px 8px;border-bottom:' + (u.debugPayload ? 'none' : '1px solid rgba(255,255,255,.07)') + ';color:' + (live ? '#7dffb2' : '#aab8ce') + ';font-size:10px">' + (u.lastSeen ? esc(timeAgo(u.lastSeen)) : '—') + '</td>'
+          + '</tr>' + debugRow;
       }).join('') || '<tr><td colspan="4" style="padding:8px;color:#92a3bd;font-size:12px">No users seen yet</td></tr>';
 
       return '<div style="padding:10px;font:12px/1.35 system-ui,sans-serif;color:#eaf4ff">'
@@ -200,6 +212,9 @@
           else if (btn.dataset.act === 'clear') clearPresence();
         };
       });
+      panel.querySelectorAll('[data-copy]').forEach(el => {
+        el.onclick = () => navigator.clipboard.writeText(el.textContent).catch(() => {});
+      });
     }
 
     return {
@@ -215,6 +230,7 @@
         if (user) {
           state.username = user.username;
           state.playerId = user.playerId;
+          state.debugPayload = user.debugPayload || null;
           sendHeartbeat();
           heartbeatInterval = setInterval(sendHeartbeat, 60 * 60 * 1000);
         }
