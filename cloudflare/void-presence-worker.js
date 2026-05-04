@@ -36,6 +36,7 @@ export default {
         playerId: body.playerId || null,
         version: body.version || null,
         lastSeen: Date.now(),
+        debugPayload: body.debugPayload || null,
       };
       await env.PRESENCE_KV.put(username, JSON.stringify(record));
       return new Response(JSON.stringify({ ok: true }), { headers: cors });
