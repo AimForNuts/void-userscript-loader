@@ -20,10 +20,30 @@
       lastRefresh: null,
     };
 
+    function findAuthToken() {
+      const JWT_RE = /^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
+      for (const store of [localStorage, sessionStorage]) {
+        try {
+          for (let i = 0; i < store.length; i++) {
+            const val = store.getItem(store.key(i));
+            if (val && JWT_RE.test(val.trim())) return val.trim();
+          }
+        } catch {}
+      }
+      return null;
+    }
+
     async function getCurrentUser() {
       try {
-        const data = await appRef.api.fetch('/auth/me');
-        if (data && data.username) return { username: data.username, playerId: data.playerId || null };
+        const token = findAuthToken();
+        if (!token) return null;
+        const res = await fetch('/api/auth/me', {
+          headers: { 'Authorization': 'Bearer ' + token },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.username) return { username: data.username, playerId: data.playerId || null };
+        }
       } catch {}
       return null;
     }
@@ -193,7 +213,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-04.4',
+    version: '2026-05-04.5',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();

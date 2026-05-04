@@ -12,7 +12,7 @@
       "icon": "👁️",
       "description": "Tracks who is using the tool (AimForNuts only).",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/presence-tracker.js",
-      "version": "2026-05-04.4",
+      "version": "2026-05-04.5",
       "category": "misc",
       "enabled": true,
       "hidden": true,
