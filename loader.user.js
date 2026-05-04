@@ -1162,6 +1162,7 @@
       PanelStorage.save(app.settings);
     },
 
+    // TODO: dead code — "Run Scripts" button removed in manager-tabs refactor
     runEnabledModules(app) {
       for (const module of app.modules.values()) {
         const state = getPanelState(app, module.id);
@@ -1730,6 +1731,7 @@
       `;
     },
 
+    // TODO: dead code — reorder UI removed in manager-tabs refactor; line 1740 has identity-map bug (always returns manifest order)
     _moveModule(app, catId, moduleId, direction) {
       const manifest   = ModuleLoader._loadCachedManifest();
       const catEntries = (manifest?.modules || []).filter(e => (e.category || (manifest?.categories?.[0]?.id ?? 'misc')) === catId);
