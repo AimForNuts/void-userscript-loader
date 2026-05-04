@@ -1750,78 +1750,32 @@
     },
 
     _attachHandlers(app, body) {
-      body.querySelectorAll('[data-vim-move-up]').forEach(btn => {
-        btn.addEventListener('click', () =>
-          this._moveModule(app, btn.dataset.vimCategory, btn.dataset.vimMoveUp, -1)
-        );
+      body.querySelector('[data-setting="open-auto"]')?.addEventListener('change', (event) => {
+        app.settings.openScriptsAutomatically = event.target.checked;
+        PanelStorage.save(app.settings);
+        this._refresh(app);
       });
 
-      body.querySelectorAll('[data-vim-move-down]').forEach(btn => {
-        btn.addEventListener('click', () =>
-          this._moveModule(app, btn.dataset.vimCategory, btn.dataset.vimMoveDown, 1)
-        );
-      });
-
-      body.querySelectorAll('[data-vim-open]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const id    = btn.dataset.vimOpen;
-          const panel = document.getElementById(`vim-panel-${id}`);
-          if (panel) {
-            panel.classList.add('vim-open');
-            if (app.settings.panels[id]) {
-              app.settings.panels[id].open = true;
-              PanelStorage.save(app.settings);
-            }
-          }
+      body.querySelectorAll('[data-vim-tab]').forEach(tab => {
+        tab.addEventListener('click', () => {
+          this._activeTab = tab.dataset.vimTab;
+          this._refresh(app);
         });
       });
 
-      body.querySelectorAll('[data-vim-details]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const rec = ModuleRegistry.get(btn.dataset.vimDetails);
-          if (rec?.error) alert(`[${btn.dataset.vimDetails}] ${rec.error}`);
+      body.querySelectorAll('[data-module-toggle]').forEach(input => {
+        input.addEventListener('change', (event) => {
+          WindowManager.setModuleEnabled(app, event.target.dataset.moduleToggle, event.target.checked);
         });
       });
 
-      body.querySelectorAll('[data-vim-reload]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const id = btn.dataset.vimReload;
-          btn.disabled = true;
-          btn.textContent = '…';
-          try {
-            await ModuleLoader.reload(app, id);
-          } finally {
-            btn.disabled = false;
-            btn.textContent = '↺';
-          }
+      body.querySelectorAll('[data-free-memory]').forEach(btn => {
+        btn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          freeModuleMemory(btn.dataset.freeMemory);
+          this._refresh(app);
         });
-      });
-
-      body.querySelector('[data-vim-reload-all]')?.addEventListener('click', async () => {
-        const manifest = ModuleLoader._loadCachedManifest();
-        if (!manifest) return;
-        for (const entry of manifest.modules) {
-          try { await ModuleLoader.reload(app, entry.id); } catch { /* isolated */ }
-        }
-      });
-
-      body.querySelector('[data-vim-toggle-log]')?.addEventListener('click', () => {
-        const logEl = document.getElementById(`${CONFIG.appId}-debug-log`);
-        if (!logEl) return;
-        const showing = logEl.style.display !== 'none';
-        logEl.style.display = showing ? 'none' : 'block';
-        if (!showing) {
-          logEl.innerHTML = logger.getLog()
-            .map(e => {
-              const color = e.level === 'error' ? '#f87171'
-                : e.level === 'warn'  ? '#fbbf24'
-                : '#9ca3af';
-              const time = new Date(e.ts).toLocaleTimeString();
-              return `<div style="color:${color}">${escapeHtml(time)} ${escapeHtml(e.line)}</div>`;
-            })
-            .join('');
-          logEl.scrollTop = logEl.scrollHeight;
-        }
       });
     },
   };
