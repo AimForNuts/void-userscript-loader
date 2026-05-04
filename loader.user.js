@@ -962,6 +962,33 @@
           overflow: hidden;
           text-overflow: ellipsis;
         }
+
+        .vim-tab-bar {
+          display: flex;
+          border-bottom: 1px solid rgba(255,255,255,0.12);
+          margin: 0 -10px 8px;
+          padding: 0 10px;
+        }
+
+        .vim-tab {
+          padding: 8px 14px;
+          font-size: 12px;
+          color: rgba(229,231,235,0.55);
+          cursor: pointer;
+          user-select: none;
+          white-space: nowrap;
+        }
+
+        .vim-tab:hover {
+          color: #e5e7eb;
+        }
+
+        .vim-tab-active {
+          font-weight: 800;
+          color: #38bdf8;
+          border-bottom: 2px solid #38bdf8;
+          margin-bottom: -1px;
+        }
       `;
 
       document.documentElement.appendChild(style);
