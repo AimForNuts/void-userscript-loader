@@ -7,6 +7,13 @@
    * CONSTANTS
    **************************************************************************/
 
+  let _tickInterval   = null;
+  let _tooltipObs     = null;
+  let _inspectObs     = null;
+  let _charViewObs    = null;
+  let _cssStyleEl     = null;
+  let _hlStyleEl      = null;
+
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
     EPIC:   "#6B3A8A", RARE:      "#2F6B5F", COMMON: "#7A6E62",
@@ -864,7 +871,7 @@
   }
 
   function setupTooltipObserver() {
-    new MutationObserver(muts => {
+    _tooltipObs = new MutationObserver(muts => {
       for (const m of muts) {
         for (const n of m.addedNodes) {
           if (n.nodeType === 1 && n.classList?.contains("chat-item-tooltip")) {
@@ -872,7 +879,8 @@
           }
         }
       }
-    }).observe(document.body, { childList: true, subtree: true });
+    });
+    _tooltipObs.observe(document.body, { childList: true, subtree: true });
   }
 
   const CAT_HL_CLASS = { top:"sg-hl-top", up:"sg-hl-up", neu:"sg-hl-neu", sal:"sg-hl-sal" };
@@ -1707,12 +1715,12 @@
   }
 
   function installUI() {
-    const style = document.createElement("style");
-    style.textContent = CSS;
-    document.documentElement.appendChild(style);
+    _cssStyleEl = document.createElement("style");
+    _cssStyleEl.textContent = CSS;
+    document.documentElement.appendChild(_cssStyleEl);
 
-    const hlStyle = document.createElement("style");
-    hlStyle.textContent = `
+    _hlStyleEl = document.createElement("style");
+    _hlStyleEl.textContent = `
       .sg-mp-badge {
         position:absolute !important; top:5px !important; right:5px !important;
         font:700 10px/1.4 Inter,sans-serif !important;
@@ -1724,7 +1732,7 @@
       .sg-hl-neu  { outline:3px solid #94a3b8 !important; box-shadow:0 0 16px 4px rgba(148,163,184,.65) !important; border-radius:4px; }
       .sg-hl-sal  { outline:3px solid #ef4444 !important; box-shadow:0 0 16px 4px rgba(239,68,68,.75) !important; border-radius:4px; }
     `;
-    document.documentElement.appendChild(hlStyle);
+    document.documentElement.appendChild(_hlStyleEl);
 
     if (_moduleApp) {
       // Module mode: register with loader's WindowManager — tray button + managed panel
@@ -3508,7 +3516,7 @@
   }
 
   function setupInspectObserver() {
-    new MutationObserver(muts => {
+    _inspectObs = new MutationObserver(muts => {
       for (const m of muts) {
         for (const n of m.addedNodes) {
           if (n.nodeType !== 1) continue;
@@ -3517,7 +3525,8 @@
           if (inner) injectInspectSaveBtn(inner);
         }
       }
-    }).observe(document.body, { childList: true, subtree: true });
+    });
+    _inspectObs.observe(document.body, { childList: true, subtree: true });
   }
 
   /**************************************************************************
@@ -3821,7 +3830,7 @@
   }
 
   function setupCharViewObserver() {
-    new MutationObserver((mutations) => {
+    _charViewObs = new MutationObserver((mutations) => {
       for (const m of mutations) {
         for (const node of m.addedNodes) {
           if (node.nodeType !== 1) continue;
@@ -3832,14 +3841,29 @@
           }
         }
       }
-    }).observe(document.body, { childList: true, subtree: true });
+    });
+    _charViewObs.observe(document.body, { childList: true, subtree: true });
   }
 
-  function boot() { loadStats(); installUI(); setupTooltipObserver(); setupInspectObserver(); setupCharViewObserver(); tick(); setInterval(tick, 1000); }
+  function boot() { loadStats(); installUI(); setupTooltipObserver(); setupInspectObserver(); setupCharViewObserver(); tick(); _tickInterval = setInterval(tick, 1000); }
     return {
       ...definition,
       init(app) { _moduleApp = app; boot(); },
-      render() {}
+      render() {},
+      destroy() {
+        clearInterval(_tickInterval);
+        _tickInterval = null;
+        _tooltipObs?.disconnect();
+        _tooltipObs = null;
+        _inspectObs?.disconnect();
+        _inspectObs = null;
+        _charViewObs?.disconnect();
+        _charViewObs = null;
+        _cssStyleEl?.remove();
+        _cssStyleEl = null;
+        _hlStyleEl?.remove();
+        _hlStyleEl = null;
+      },
     };
   }
 
