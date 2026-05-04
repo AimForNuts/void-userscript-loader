@@ -108,7 +108,6 @@
     function timeAgo(ts) { const s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return s + 's ago'; if (s < 3600) return Math.floor(s / 60) + 'm ago'; return Math.floor(s / 3600) + 'h ago'; }
 
     function render() {
-      if (state.username !== OWNER) return '<div></div>';
       if (state.loading) {
         return '<div style="padding:10px;color:#aab8ce;font-size:12px">Loading...</div>';
       }
@@ -178,13 +177,6 @@
       init(app) {
         appRef = app;
 
-        app.ui.registerPanel({
-          id: definition.id,
-          title: definition.name,
-          icon: definition.icon || '👁️',
-          render: () => render(),
-        });
-
         getCurrentUser().then(user => {
           if (user) {
             state.username = user.username;
@@ -193,10 +185,14 @@
             heartbeatInterval = setInterval(sendHeartbeat, 60 * 60 * 1000);
           }
           if (state.username === OWNER) {
+            app.ui.registerPanel({
+              id: definition.id,
+              title: definition.name,
+              icon: definition.icon || '👁️',
+              render: () => render(),
+            });
             fetchPresence();
             refreshInterval = setInterval(fetchPresence, 30 * 60 * 1000);
-          } else {
-            renderIntoPanel();
           }
         });
       },
