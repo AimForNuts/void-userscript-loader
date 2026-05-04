@@ -12,7 +12,7 @@
       "icon": "🔬",
       "description": "Dev-only overlay: dumps JWT payload, localStorage strings, and captured auth-endpoint responses.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/debug-inspector.js",
-      "version": "2026-05-04.1",
+      "version": "2026-05-04.2",
       "category": "misc",
       "enabled": true,
       "hidden": true,
