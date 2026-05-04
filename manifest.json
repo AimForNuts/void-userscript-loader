@@ -7,6 +7,18 @@
   ],
   "modules": [
     {
+      "id": "debug-inspector",
+      "name": "Debug Inspector",
+      "icon": "🔬",
+      "description": "Dev-only overlay: dumps JWT payload, localStorage strings, and captured auth-endpoint responses.",
+      "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/debug-inspector.js",
+      "version": "2026-05-04.1",
+      "category": "misc",
+      "enabled": false,
+      "hidden": true,
+      "dependencies": ["core"]
+    },
+    {
       "id": "presence-tracker",
       "name": "Presence Tracker",
       "icon": "👁️",
