@@ -6,7 +6,7 @@
     let originalFetch = null;
     const captured = { network: [] };
     const JWT_RE = /^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
-    const AUTH_RE = /user|auth|login|me|profile|account/i;
+    const USER_FIELDS = new Set(['username', 'name', 'displayName', 'display_name', 'playerName', 'player_name', 'id', 'playerId', 'userId']);
 
     function decodeJWT(token) {
       try {
@@ -42,9 +42,11 @@
         const res = await originalFetch.apply(this, args);
         try {
           const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-          if (AUTH_RE.test(url) && captured.network.length < 20) {
+          if (captured.network.length < 20) {
             res.clone().json().then(data => {
-              if (data && typeof data === 'object') {
+              if (!data || typeof data !== 'object') return;
+              const keys = Object.keys(Array.isArray(data) ? (data[0] || {}) : data);
+              if (keys.some(k => USER_FIELDS.has(k))) {
                 captured.network.push({ url, data });
                 renderOverlay();
               }
@@ -79,7 +81,10 @@
       return '<div style="font:12px/1.4 system-ui,sans-serif;color:#eaf4ff">'
         + '<div id="dbg-handle" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#111c31;border-bottom:1px solid #35506f;cursor:grab;user-select:none">'
         + '<span style="font-weight:900;font-size:11px">🔬 Debug Inspector</span>'
+        + '<div style="display:flex;gap:6px;align-items:center">'
+        + '<button data-act="refresh" style="background:#111c31;border:1px solid #35506f;color:#eaf4ff;border-radius:6px;padding:2px 8px;font-size:10px;cursor:pointer">Refresh</button>'
         + '<button data-act="close" style="background:none;border:none;color:#aab8ce;cursor:pointer;font-size:16px;line-height:1;padding:0 2px">×</button>'
+        + '</div>'
         + '</div>'
         + '<div style="padding:8px 10px;max-height:420px;overflow-y:auto">'
         + section('Storage', 'storage', pre(storage, '#ffd580'))
@@ -107,6 +112,7 @@
 
     function bindEvents() {
       overlayEl.querySelector('[data-act="close"]').onclick = () => overlayEl.style.display = 'none';
+      overlayEl.querySelector('[data-act="refresh"]').onclick = () => renderOverlay();
       overlayEl.querySelector('[data-act="copy-storage"]').onclick = () => navigator.clipboard.writeText(copyData.storage).catch(() => {});
       overlayEl.querySelector('[data-act="copy-network"]').onclick = () => navigator.clipboard.writeText(copyData.network).catch(() => {});
       overlayEl.querySelector('[data-act="copy-all"]').onclick = () => navigator.clipboard.writeText(copyData.all).catch(() => {});
@@ -174,7 +180,7 @@
     id: 'debug-inspector',
     name: 'Debug Inspector',
     icon: '🔬',
-    version: '2026-05-04.1',
+    version: '2026-05-04.2',
     description: 'Dev-only overlay: dumps JWT payload, localStorage strings, and captured auth-endpoint responses.',
   });
 })();
