@@ -1042,55 +1042,7 @@
     },
 
     renderMaster(app) {
-      const panel = app.panels.get(`${CONFIG.appId}-manager`);
-      if (!panel) return;
-
-      const body = panel.querySelector(".vim-body");
-      const footer = panel.querySelector(".vim-footer");
-
-      body.innerHTML = `
-        <div class="vim-row">
-          <label class="vim-switch-row">
-            <input type="checkbox" data-setting="open-auto" ${app.settings.openScriptsAutomatically ? "checked" : ""} />
-            <span>Open scripts automatically</span>
-          </label>
-        </div>
-
-        ${(ModuleLoader._loadCachedManifest()?.modules || []).filter(entry => !entry.hidden).map((entry) => renderModuleRow(app, entry)).join("")}
-
-        <button type="button" class="vim-btn vim-btn-primary" data-action="run-scripts">Run Scripts</button>
-      `;
-
-      footer.textContent = app.settings.openScriptsAutomatically
-        ? "Auto-open is on. Enabled scripts open on page load."
-        : "Auto-open is off. Enabled scripts stay in the tray until Run Scripts is clicked.";
-
-      body.querySelector('[data-setting="open-auto"]').addEventListener("change", (event) => {
-        app.settings.openScriptsAutomatically = event.target.checked;
-        PanelStorage.save(app.settings);
-        this.renderMaster(app);
-      });
-
-      body.querySelectorAll("[data-module-toggle]").forEach((input) => {
-        input.addEventListener("change", (event) => {
-          this.setModuleEnabled(app, event.target.dataset.moduleToggle, event.target.checked);
-        });
-      });
-
-      body.querySelectorAll('[data-free-memory]').forEach((btn) => {
-        btn.addEventListener('click', (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          freeModuleMemory(btn.dataset.freeMemory);
-          this.renderMaster(app);
-        });
-      });
-
-      body.querySelector('[data-action="run-scripts"]').addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        this.runEnabledModules(app);
-      });
+      ManagerUI._refresh(app);
     },
 
     renderTray(app) {
@@ -1725,7 +1677,7 @@
     _bodyId: `${CONFIG.appId}-manager-body`,
 
     init(app) {
-      const refresh = () => WindowManager.renderMaster(app);
+      const refresh = () => this._refresh(app);
       app.events.on('loader:manifest',        refresh);
       app.events.on('loader:module:loaded',   refresh);
       app.events.on('loader:module:failed',   refresh);
