@@ -22,13 +22,8 @@
 
     async function getCurrentUser() {
       try {
-        const token = localStorage.getItem('authToken');
-        const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
-        const res = await fetch('/api/auth/me', { headers });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.username) return { username: data.username, playerId: data.playerId || null };
-        }
+        const data = await appRef.api.fetch('/auth/me');
+        if (data && data.username) return { username: data.username, playerId: data.playerId || null };
       } catch {}
       return null;
     }
@@ -93,7 +88,7 @@
     function timeAgo(ts) { const s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return s + 's ago'; if (s < 3600) return Math.floor(s / 60) + 'm ago'; return Math.floor(s / 3600) + 'h ago'; }
 
     function render() {
-      if (state.username !== OWNER) return '';
+      if (state.username !== OWNER) return '<div></div>';
       if (state.loading) {
         return '<div style="padding:10px;color:#aab8ce;font-size:12px">Loading...</div>';
       }
@@ -171,15 +166,17 @@
         });
 
         getCurrentUser().then(user => {
-          if (!user) return;
-          state.username = user.username;
-          state.playerId = user.playerId;
-          sendHeartbeat();
-          heartbeatInterval = setInterval(sendHeartbeat, 60 * 60 * 1000);
-
+          if (user) {
+            state.username = user.username;
+            state.playerId = user.playerId;
+            sendHeartbeat();
+            heartbeatInterval = setInterval(sendHeartbeat, 60 * 60 * 1000);
+          }
           if (state.username === OWNER) {
             fetchPresence();
             refreshInterval = setInterval(fetchPresence, 30 * 60 * 1000);
+          } else {
+            renderIntoPanel();
           }
         });
       },
@@ -196,7 +193,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-04.3',
+    version: '2026-05-04.4',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();
