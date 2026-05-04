@@ -1675,6 +1675,7 @@
   // ─── MANAGER UI ─────────────────────────────────────────────────────────────
   const ManagerUI = {
     _bodyId: `${CONFIG.appId}-manager-body`,
+    _activeTab: null,
 
     init(app) {
       const refresh = () => this._refresh(app);
@@ -1695,100 +1696,37 @@
     },
 
     _renderBody(app) {
-      const records    = ModuleRegistry.getAll();
       const manifest   = ModuleLoader._loadCachedManifest();
       const entries    = manifest?.modules || [];
       const categories = manifest?.categories || [{ id: 'misc', label: 'Modules' }];
 
-      const nLoaded = records.filter(r => r.status === 'loaded').length;
-      const nFailed = records.filter(r => r.status === 'failed').length;
-      const statusText = records.length === 0
-        ? 'Loading modules…'
-        : `${nLoaded} loaded${nFailed ? ` / ${nFailed} ❌` : ''}`;
+      if (!this._activeTab || !categories.find(c => c.id === this._activeTab)) {
+        this._activeTab = categories[0]?.id || 'misc';
+      }
 
-      const offlineBadge = ModuleLoader._offline
-        ? '<span style="color:#f59e0b;margin-left:6px;">● Offline (cached)</span>'
-        : '';
+      const toggleChecked = app.settings.openScriptsAutomatically ? 'checked' : '';
 
-      const moduleOrder = app.settings.moduleOrder || {};
-
-      const sections = categories.map(cat => {
-        let catEntries = entries.filter(e => (e.category || categories[0].id) === cat.id);
-        if (!catEntries.length) return '';
-
-        // Apply stored order, preserving manifest entries not yet in order.
-        const order = moduleOrder[cat.id];
-        if (order && order.length) {
-          catEntries = [...catEntries].sort((a, b) => {
-            const ai = order.indexOf(a.id);
-            const bi = order.indexOf(b.id);
-            if (ai === -1 && bi === -1) return 0;
-            if (ai === -1) return 1;
-            if (bi === -1) return -1;
-            return ai - bi;
-          });
-        }
-
-        const rows = catEntries.map((entry, idx) => {
-          const rec      = ModuleRegistry.get(entry.id);
-          const isFirst  = idx === 0;
-          const isLast   = idx === catEntries.length - 1;
-          const reorderBtns = `
-            <button class="vim-btn vim-btn-reorder" data-vim-move-up="${escapeHtml(entry.id)}" data-vim-category="${escapeHtml(cat.id)}" ${isFirst ? 'disabled' : ''}>▲</button>
-            <button class="vim-btn vim-btn-reorder" data-vim-move-down="${escapeHtml(entry.id)}" data-vim-category="${escapeHtml(cat.id)}" ${isLast ? 'disabled' : ''}>▼</button>
-          `;
-
-          if (!rec) {
-            const label = entry.enabled ? 'Loading…' : '⏭ Disabled in manifest';
-            return `<div class="vim-row">
-              <div class="vim-row-main">
-                <div class="vim-row-title">${escapeHtml(entry.icon || '')} ${escapeHtml(entry.name)}</div>
-                <div class="vim-muted">${label}</div>
-              </div>
-              <div class="vim-actions">${reorderBtns}</div>
-            </div>`;
-          }
-
-          const icon      = rec.status === 'loaded' ? '✅' : '❌';
-          const label     = rec.status === 'loaded'
-            ? `v${escapeHtml(String(rec.entry.version))}`
-            : escapeHtml(rec.error || 'error');
-          const actionBtn = rec.status === 'loaded'
-            ? `<button class="vim-btn" data-vim-open="${escapeHtml(entry.id)}">Open</button>`
-            : `<button class="vim-btn" data-vim-details="${escapeHtml(entry.id)}">Details</button>`;
-
-          return `<div class="vim-row">
-            <div class="vim-row-main">
-              <div class="vim-row-title">${icon} ${escapeHtml(entry.icon || '')} ${escapeHtml(entry.name)}</div>
-              <div class="vim-muted">${label}</div>
-            </div>
-            <div class="vim-actions">
-              ${reorderBtns}
-              ${actionBtn}
-              <button class="vim-btn" data-vim-reload="${escapeHtml(entry.id)}">↺</button>
-            </div>
-          </div>`;
-        }).join('');
-
-        return `
-          <div class="vim-category-header">${escapeHtml(cat.label)}</div>
-          ${rows}
-        `;
+      const tabBar = categories.map(cat => {
+        const isActive = cat.id === this._activeTab;
+        return `<div class="vim-tab${isActive ? ' vim-tab-active' : ''}" data-vim-tab="${escapeHtml(cat.id)}">${escapeHtml(cat.label)}</div>`;
       }).join('');
 
+      const activeEntries = entries.filter(e =>
+        !e.hidden &&
+        (e.category || categories[0].id) === this._activeTab
+      );
+
+      const rows = activeEntries.map(entry => renderModuleRow(app, entry)).join('');
+
       return `
-        <div style="margin-bottom:8px;color:rgba(229,231,235,0.7);font-size:11px;">
-          ${escapeHtml(statusText)}${offlineBadge}
+        <div class="vim-row">
+          <label class="vim-switch-row">
+            <input type="checkbox" data-setting="open-auto" ${toggleChecked} />
+            <span>Open scripts automatically</span>
+          </label>
         </div>
-        ${sections}
-        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="vim-btn vim-btn-primary" data-vim-reload-all>↺ Reload All</button>
-          <button class="vim-btn" data-vim-toggle-log>▾ Debug Log</button>
-        </div>
-        <div id="${CONFIG.appId}-debug-log"
-             style="display:none;margin-top:8px;max-height:180px;overflow-y:auto;
-                    font-size:10px;font-family:monospace;background:rgba(0,0,0,0.32);
-                    padding:6px;border-radius:6px;white-space:pre-wrap;"></div>
+        <div class="vim-tab-bar">${tabBar}</div>
+        ${rows || '<div class="vim-muted" style="padding:4px 2px 8px;">No modules in this category.</div>'}
       `;
     },
 
