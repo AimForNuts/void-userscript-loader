@@ -1630,8 +1630,10 @@
 
       // Evaluate
       try {
-        const fn = new Function(source); // eslint-disable-line no-new-func
-        fn();
+        window.VoidIdleModules = window.VoidIdleModules || {};
+        delete window.VoidIdleModules[entry.id];
+        const fn = new Function('window', 'globalThis', source); // eslint-disable-line no-new-func
+        fn(window, window);
       } catch (evalErr) {
         return { ok: false, error: `Eval failed: ${evalErr.message}` };
       }
@@ -1639,9 +1641,11 @@
       // Validate
       const mod = window.VoidIdleModules?.[entry.id];
       if (!mod) {
+        const assignedIds = Object.keys(window.VoidIdleModules || {}).join(', ') || 'none';
+        const sourceTail = source.slice(-240).replace(/\s+/g, ' ').trim();
         return {
           ok: false,
-          error: `window.VoidIdleModules['${entry.id}'] was not assigned after eval`,
+          error: `window.VoidIdleModules['${entry.id}'] was not assigned after eval; assigned: ${assignedIds}; tail: ${sourceTail}`,
         };
       }
       if (typeof mod.init !== 'function') {
