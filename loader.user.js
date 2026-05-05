@@ -1287,8 +1287,10 @@
           bottom:  config.bottom || 58,
         };
       }
-      app.settings.panels[moduleId].enabled = true;
-      PanelStorage.save(app.settings);
+      if (config.enabled === true) {
+        app.settings.panels[moduleId].enabled = true;
+        PanelStorage.save(app.settings);
+      }
       this.createModulePanel(app, {
         id:          moduleId,
         icon:        config.icon        || '🔧',
