@@ -41,25 +41,62 @@
   // Forge multipliers on primary stat only
   const FORGE_MULT = { moonforged:1.20, sunforged:1.50 };
 
-  // Primary stat for each slot — quality% on primary = rolled / (T_base_max × rarity_mult × forge_mult)
+  // Primary stat for each slot — quality% on primary = rolled / (subTierAdjustedMax × rarity_mult × forge_mult)
+  // Note: heavy armor Hands primary is DEF (3–4 at T1), not ATK. Light Hands keeps ATK.
   const SLOT_PRIMARY_STAT = {
-    Weapon:"atk", Hands:"atk",
+    Weapon:"atk", Hands:"atk",  // heavy Hands → "def" (see PRIMARY_BASE_RANGES_LIGHT["Heavy Hands (DEF)"])
     Shield:"def", Chest:"def", Helmet:"def", Shoulders:"def", Legs:"def", Boots:"def",
     Amulet:"hp",
     Ring:null,  // random: atk / def / hp
   };
 
-  // Primary base ranges by weapon group, T1–T9 (roll 80–100% of these, then × rarity_mult)
+  // Primary base ranges — Sub II anchor values per tier (redesign 2026-05-03).
+  // Sub I = ÷1.08, Sub III = ×1.08. Roll range: 80–100% of base, then × rarity_mult × forge_mult.
+  // Heavy armor shown; light armor is ~25-33% lower on DEF slots (see PRIMARY_BASE_RANGES_LIGHT).
   const PRIMARY_BASE_RANGES = {
-    "Sword/Bow/Spear": [[10,13],[14,18],[20,25],[27,36],[38,50],[54,70],[75,98],[105,137],[148,192]],
-    "Staff/Harp":      [[ 8,10],[11,14],[16,20],[22,27],[31,38],[43,54],[60,75],[ 84,105],[118,148]],
-    "Fan":             [[ 9,11],[13,15],[18,22],[25,30],[35,42],[48,59],[68,83],[ 95,116],[133,162]],
-    "Hands/Ring(ATK)": [[ 2, 3],[ 3, 4],[ 4, 6],[ 5, 8],[ 8,12],[11,16],[15,23],[ 21, 32],[ 30, 44]],
-    "Shield/Chest":    [[ 6, 8],[ 8,11],[12,16],[16,22],[23,31],[32,43],[45,60],[ 63, 84],[ 89,118]],
-    "Helmet/Shoulders/Legs/Boots/Ring(DEF)":
-                       [[ 4, 5],[ 6, 7],[ 8,10],[11,14],[15,19],[22,27],[30,38],[ 42, 53],[ 59, 74]],
-    "Amulet/Ring(HP)": [[10,13],[14,18],[20,25],[27,36],[38,50],[54,70],[75,98],[105,137],[148,192]],
+    "Sword/Bow/Spear": [[10,13],[15,20],[24,29],[34,46],[52,69],[81,105],[122,159],[184,241],[282,366]],
+    "Staff/Harp":      [[ 8,10],[12,15],[19,24],[28,34],[43,52],[ 64, 81],[ 97,122],[147,184],[225,282]],
+    "Fan":             [[ 9,11],[14,16],[21,26],[32,38],[48,58],[ 72, 88],[110,135],[167,204],[253,309]],
+    "Hands/Ring(ATK)": [[ 2, 3],[ 3, 4],[ 5, 7],[ 6,10],[11,17],[ 16, 24],[ 24, 37],[ 37, 56],[ 57, 84]],
+    "Shield/Heavy Chest":  [[ 6, 8],[ 9,12],[14,19],[20,28],[32,43],[ 48, 64],[ 73, 97],[111,148],[170,225]],
+    "Heavy Helmet/Shoulders/Legs/Boots/Ring(DEF)":
+                       [[ 4, 5],[ 7, 8],[ 9,12],[14,18],[21,26],[ 33, 40],[ 49, 62],[ 74, 93],[112,141]],
+    "Amulet/Ring(HP)": [[10,13],[15,20],[24,29],[34,46],[52,69],[81,105],[122,159],[184,241],[282,366]],
   };
+
+  // Light armor DEF primary is ~20-33% lower than heavy. T1 values from doc; T2-T9 scale similarly.
+  const PRIMARY_BASE_RANGES_LIGHT = {
+    "Light Chest":                    [[ 4, 6],[ 6, 9],[10,13],[14,20],[23,30],[34,45],[52,69],[ 79,105],[120,159]],
+    "Light Helmet/Shoulders/Legs/Boots": [[ 3, 4],[ 5, 6],[ 7, 9],[11,14],[16,20],[26,31],[38,48],[ 58, 72],[ 87,110]],
+    "Heavy Hands (DEF)":              [[ 3, 4],[ 3, 4],[ 5, 7],[ 6,10],[11,17],[ 16, 24],[ 24, 37],[ 37, 56],[ 57, 84]],
+  };
+
+  // Sub-tier gear-req level breakpoints (redesign 2026-05-03).
+  // Quality = rolled / (subTierAdjustedMax × rarity_mult × forge_mult)
+  // Sub I = anchor ÷ 1.08, Sub II = anchor (table values), Sub III = anchor × 1.08
+  const SUB_TIER_BREAKPOINTS = [
+    // [tier, subI_gearReqLv, subII_gearReqLv, subIII_gearReqLv]
+    [1,   1,   8,  13],
+    [2,   7,  12,  17],
+    [3,  21,  27,  33],
+    [4,  37,  44,  51],
+    [5,  55,  63,  71],
+    [6,  75,  83,  91],
+    [7,  95, 103, 111],
+    [8, 115, 125, 135],
+    [9, 139, 151, 163],
+  ];
+
+  // Returns { tier, sub (1/2/3), factor (÷1.08 / ×1 / ×1.08) } from a gear-req level.
+  function subTierFromGearReq(gearReq) {
+    for (let i = SUB_TIER_BREAKPOINTS.length - 1; i >= 0; i--) {
+      const [tier, s1, s2, s3] = SUB_TIER_BREAKPOINTS[i];
+      if (gearReq >= s3) return { tier, sub: 3, factor: 1.08 };
+      if (gearReq >= s2) return { tier, sub: 2, factor: 1.00 };
+      if (gearReq >= s1) return { tier, sub: 1, factor: 1 / 1.08 };
+    }
+    return { tier: 1, sub: 1, factor: 1 / 1.08 };
+  }
 
   // Bonus stat roll ranges (80–100% of these values; same pool regardless of item rarity)
   // { min, max, step } — quality% = rolled / max
@@ -564,12 +601,14 @@
     }
 
     const mwt = Math.floor(ctxLevel / 10) + 1;
-    state.marketItems = state.marketRawData.map(r =>
-      ({ ..._buildBagItem(r.item, equippedMap, filterKey),
-         listingId: r.listingId, price: r.price,
-         sellerName: r.sellerName, itemTier: r.itemTier,
-         isFutureTier: (r.itemTier - mwt) > 1 })
-    );
+    state.marketItems = state.marketRawData.map(r => {
+      const isFutureTier = r.gearReqLevel != null
+        ? r.gearReqLevel > ctxLevel          // sub-tier-aware: gear-req level exceeds player level
+        : (r.itemTier - mwt) > 1;            // fallback: tier proxy until server exposes gearReqLevel
+      return { ..._buildBagItem(r.item, equippedMap, filterKey),
+               listingId: r.listingId, price: r.price,
+               sellerName: r.sellerName, itemTier: r.itemTier, isFutureTier };
+    });
     state.marketCtxMwt = mwt;
   }
 
@@ -1371,9 +1410,10 @@
       };
 
       const itemTier     = raw.itemTier ?? 1;
-      const isFutureTier = (itemTier - mwt) > 1;
+      // Try API field names for gear-req level (set by server with sub-tier system)
+      const gearReqLevel = raw.gearReqLevel ?? raw.gear_req_level ?? raw.reqLevel ?? raw.level_req ?? raw.itemLevelReq ?? null;
       raws.push({ item, listingId: listing.id, price: listing.price,
-                  sellerName: listing.sellerName, itemTier, isFutureTier });
+                  sellerName: listing.sellerName, itemTier, gearReqLevel });
     });
 
     state.marketRawData = raws;
@@ -4213,7 +4253,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.27.2',
+    version:     '8.28.0',
     category:    'fighter',
   });
 })();
