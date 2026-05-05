@@ -1661,6 +1661,7 @@
         ModuleRegistry.register(entry.id, mod, entry, 'loaded');
         // Add to app.modules so WindowManager.renderTray can build tray buttons
         app.modules.set(entry.id, mod);
+        WindowManager.renderTray(app);
         logger.log(`Module initialized: ${entry.id}`);
         return { ok: true };
       } catch (initErr) {
