@@ -761,7 +761,7 @@
   );
 
   function parseChatTooltip(el) {
-    // .tt-sub direct text node: "MYTHIC · AMULET" (tier is in a child <span>)
+    // .tt-sub direct text node: "MYTHIC · AMULET" or "MYTHIC MOONFORGED · SWORD"
     const subEl = el.querySelector(".tt-sub");
     let subText = "";
     if (subEl) {
@@ -793,19 +793,56 @@
       }
     });
 
-    // Read armorWeight from any element containing "Light Armor" or "Heavy Armor"
-    let armorWeight = null;
     const allText = el.textContent ?? "";
+
+    // Forge tier — check sub text and full text (sub may read "MYTHIC MOONFORGED · SWORD")
+    let forgeTier = null;
+    if (/sunforged/i.test(allText))  forgeTier = "sunforged";
+    else if (/moonforged/i.test(allText)) forgeTier = "moonforged";
+    else if (/starforged/i.test(allText)) forgeTier = "starforged";
+
+    // Enhancement level (+1–+20) — find "+N" in tooltip header before any stat rows
+    // Strip stat-row text so we don't confuse "+11 ATK" with a +11 enhancement
+    let plusLevel = 0;
+    const firstStatRow = el.querySelector(".tt-stat-row");
+    const headerText = firstStatRow
+      ? allText.substring(0, allText.indexOf(firstStatRow.textContent.trim())).trim()
+      : allText;
+    const plusMatch = headerText.match(/\+(\d{1,2})(?!\d)/);
+    if (plusMatch) plusLevel = parseInt(plusMatch[1]);
+
+    // Armor weight
+    let armorWeight = null;
     if (/heavy\s*armor/i.test(allText)) armorWeight = "heavy";
     else if (/light\s*armor/i.test(allText)) armorWeight = "light";
 
-    return { rarity, slot, typePart, stats: ttStats, qualities: ttQualities, armorWeight };
+    return { rarity, slot, typePart, stats: ttStats, qualities: ttQualities,
+             forgeTier, plusLevel, armorWeight };
+  }
+
+  // Enhancement stat multiplier for +1–+20 enhancement levels
+  function calcEnhMult(n) {
+    if (n <= 0)  return 1;
+    if (n <= 5)  return 1 + n * 0.05;
+    if (n <= 10) return 1.25 + (n - 5)  * 0.08;
+    if (n <= 15) return 1.65 + (n - 10) * 0.12;
+    return                2.25 + (n - 15) * 0.18;
+  }
+
+  // Primary stat key for a given slot (forge mult only applies to primary)
+  function primaryStatForSlot(slot, armorWeight) {
+    if (slot === "Weapon") return "atk";
+    if (slot === "Hands")  return armorWeight === "heavy" ? "def" : "atk";
+    if (slot === "Amulet") return "hp";
+    if (slot === "Ring")   return null;
+    return "def"; // Shield, Chest, Helmet, Shoulders, Legs, Boots
   }
 
   function injectChatComparison(el) {
     if (el.querySelector(".sg-chat-compare")) return;
 
-    const { rarity, slot, typePart, stats: ttStats, qualities: ttQualities, armorWeight } = parseChatTooltip(el);
+    const { rarity, slot, typePart, stats: ttStats, qualities: ttQualities,
+            forgeTier, plusLevel, armorWeight } = parseChatTooltip(el);
     const div = document.createElement("div");
     div.className = "sg-chat-compare";
 
@@ -823,18 +860,29 @@
       return;
     }
 
-    // Equipped item base stats (no forge/rune inflation)
+    // Equipped item base stats (raw rolls, no forge/rune/enhancement inflation)
     const eqBaseStats = {};
     for (const [k, v] of Object.entries(equippedItem.stats)) {
       if (k === "_qualities") continue;
       eqBaseStats[normStatKey(k)] = v;
     }
 
-    // Diffs: tooltip stats vs equipped base
-    const allKeys = new Set([...Object.keys(ttStats), ...Object.keys(eqBaseStats)]);
+    // De-inflate chat item's displayed stats → base stats for fair base-vs-base comparison.
+    // Tooltip shows total values: primary = base × forgeMult × enhMult, bonus = base × enhMult.
+    const forgeMult  = FORGE_MULT[forgeTier] ?? 1;
+    const enhMult    = calcEnhMult(plusLevel);
+    const primaryStat = primaryStatForSlot(slot, armorWeight);
+    const ttBaseStats = {};
+    for (const [sk, v] of Object.entries(ttStats)) {
+      const divisor = (sk === primaryStat) ? forgeMult * enhMult : enhMult;
+      ttBaseStats[sk] = divisor !== 1 ? v / divisor : v;
+    }
+
+    // Diffs: chat item base stats vs equipped base stats
+    const allKeys = new Set([...Object.keys(ttBaseStats), ...Object.keys(eqBaseStats)]);
     const diffs   = [];
     for (const sk of allKeys) {
-      const delta = (ttStats[sk] ?? 0) - (eqBaseStats[sk] ?? 0);
+      const delta = (ttBaseStats[sk] ?? 0) - (eqBaseStats[sk] ?? 0);
       if (Math.abs(delta) < 0.001) continue;
       const label = STAT_DEFS.find(d => d.key === sk)?.label ?? sk;
       diffs.push({ text:`${label} ${fmtDelta(delta)}`, stat:sk, isUp:delta>0, isDown:delta<0 });
@@ -842,7 +890,7 @@
 
     // Score + recommendation using active filter
     const activeFC      = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const itemStatKeys  = new Set(Object.keys(ttStats));
+    const itemStatKeys  = new Set(Object.keys(ttBaseStats));
     const maxSlots      = RARITY_STAT_SLOTS[rarity.toUpperCase()] ?? 4;
     const multiRollCount = Math.max(0, maxSlots - itemStatKeys.size);
     const priorityUps   = diffs.filter(d => d.isUp && activeFC.stats.has(d.stat)).length;
@@ -899,15 +947,15 @@
     if (sc.atkPhys != null && sc.atkSpeed != null && sc.atkSpeed > 0) {
       const curDPS         = calcDPS(sc);
       const curAllStats    = sc.allStats ?? 0;
-      const atkDelta       = (ttStats.atk       ?? 0) - (eqBaseStats.atk       ?? 0);
-      const allStatsDelta  = (ttStats.allStats   ?? 0) - (eqBaseStats.allStats  ?? 0);
+      const atkDelta       = (ttBaseStats.atk       ?? 0) - (eqBaseStats.atk       ?? 0);
+      const allStatsDelta  = (ttBaseStats.allStats   ?? 0) - (eqBaseStats.allStats  ?? 0);
       const eqSpdPct       = eqBaseStats.atkSpeed ?? 0;
-      const newSpdPct      = ttStats.atkSpeed    ?? 0;
+      const newSpdPct      = ttBaseStats.atkSpeed    ?? 0;
       const baseATK        = sc.atkPhys / (1 + curAllStats / 100);
       const newAtk         = (baseATK + atkDelta) * (1 + (curAllStats + allStatsDelta) / 100);
       const newSpd         = sc.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
-      const newCrit        = (sc.critChance ?? 0) + (ttStats.critChance ?? 0) - (eqBaseStats.critChance ?? 0);
-      const newCritD       = (sc.critDmg    ?? 0) + (ttStats.critDmg    ?? 0) - (eqBaseStats.critDmg    ?? 0);
+      const newCrit        = (sc.critChance ?? 0) + (ttBaseStats.critChance ?? 0) - (eqBaseStats.critChance ?? 0);
+      const newCritD       = (sc.critDmg    ?? 0) + (ttBaseStats.critDmg    ?? 0) - (eqBaseStats.critDmg    ?? 0);
       if (curDPS != null && newAtk > 0 && newSpd > 0) {
         const hitRate = (sc.hitChance ?? 95) / 100;
         const newDPS  = (newAtk / newSpd) * hitRate * (1 + (newCrit / 100) * ((newCritD / 100) - 1));
@@ -925,9 +973,9 @@
       const curSurv = calcSurvivability(sc.maxHpStat, sc.def ?? 0);
       if (curSurv) {
         const curAllStats   = sc.allStats ?? 0;
-        const allStatsDelta = (ttStats.allStats ?? 0) - (eqBaseStats.allStats ?? 0);
-        const hpDelta       = (ttStats.hp  ?? 0) - (eqBaseStats.hp  ?? 0);
-        const defDelta      = (ttStats.def ?? 0) - (eqBaseStats.def ?? 0);
+        const allStatsDelta = (ttBaseStats.allStats ?? 0) - (eqBaseStats.allStats ?? 0);
+        const hpDelta       = (ttBaseStats.hp  ?? 0) - (eqBaseStats.hp  ?? 0);
+        const defDelta      = (ttBaseStats.def ?? 0) - (eqBaseStats.def ?? 0);
         const baseHP  = sc.maxHpStat / (1 + curAllStats / 100);
         const baseDEF = (sc.def ?? 0) / (1 + curAllStats / 100);
         const newHP   = (baseHP  + hpDelta)  * (1 + (curAllStats + allStatsDelta) / 100);
@@ -949,9 +997,9 @@
     let manaDeltaHtml = "";
     {
       const curAllStats   = sc.allStats ?? 0;
-      const allStatsDelta = (ttStats.allStats  ?? 0) - (eqBaseStats.allStats  ?? 0);
-      const manaDelta     = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
-      const mregenDelta   = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
+      const allStatsDelta = (ttBaseStats.allStats  ?? 0) - (eqBaseStats.allStats  ?? 0);
+      const manaDelta     = (ttBaseStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
+      const mregenDelta   = (ttBaseStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
       if (manaDelta !== 0 || mregenDelta !== 0 || allStatsDelta !== 0) {
         const baseMana   = (sc.maxManaStat ?? 0) / (1 + curAllStats / 100);
         const baseMRegen = (sc.manaRegen  ?? 0)  / (1 + curAllStats / 100);
@@ -4280,7 +4328,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.29.0',
+    version:     '8.30.0',
     category:    'fighter',
   });
 })();
