@@ -189,6 +189,7 @@
               id: definition.id,
               title: definition.name,
               icon: definition.icon || '👁️',
+              enabled: true,
               render: () => render(),
             });
             fetchPresence();
@@ -209,7 +210,7 @@
     id: 'presence-tracker',
     name: 'Presence Tracker',
     icon: '👁️',
-    version: '2026-05-04.5',
+    version: '2026-05-05.1',
     description: 'Tracks who is using the tool (AimForNuts only).',
   });
 })();
