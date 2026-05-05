@@ -290,6 +290,9 @@
           };
         }
       }
+      for (const p of Object.values(stored)) {
+        if (p.teamMember === undefined) p.teamMember = true;
+      }
       return stored;
     } catch { return {}; }
   })();
@@ -323,7 +326,7 @@
     const equippedMap = buildEquippedMap(data.equipped);
     const charStats   = parseInspectCharStats(data);
     if (!trackedProfiles[playerId]) {
-      trackedProfiles[playerId] = { playerId, username, active: true, filterKey: "", snapshots: [] };
+      trackedProfiles[playerId] = { playerId, username, active: true, teamMember: false, filterKey: "", snapshots: [] };
     }
     const tp = trackedProfiles[playerId];
     tp.username = username;
@@ -618,6 +621,7 @@
     teamSendStatus: "", teamSendBusy: false,
     salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(),
     historySelectedPlayer: null,
+    teamManage: false,
   };
 
   /**************************************************************************
@@ -2040,7 +2044,7 @@
         <span class="sg-filter-name">${esc(key)}</span>
         <span class="sg-filter-statcount">${fc.stats.size + fc.preferredStats.size} stats${fc.preferredStats.size ? ` · ★${fc.preferredStats.size}` : ""}</span>
         <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter (items won't be scored by this filter)":"Enable filter"}">${fc.enabled?"●":"○"}</button>
-        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts item score (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts item score (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
+        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts score: >2%→+2, >5%→+3 (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts score: >2%→+2, >5%→+3 (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
         <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: choose which stats are Liked (♥ ±2) or Preferred (★ ±4)">✏</button>
         ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}" title="Delete this filter">✗</button>`:""}
       </div>`;
@@ -2395,21 +2399,21 @@
     return `<span class="sg-badge sg-badge-multi">${label} Roll <span style="color:${qColor};font-weight:700;">${qPct}%</span>${note}</span>`;
   }
 
-  // Returns score bump based on DPS% change: >5%→+2, >2%→+1, <-2%→-1, <-5%→-2
+  // Returns score bump based on DPS% change: >5%→+3, >2%→+2, <-2%→-1, <-5%→-2
   function _dpsScoreBump(item, ctx) {
     const c      = ctx ?? selfCtx();
     const delta  = calcItemDpsDelta(item, c);
     const curDPS = calcDPS(c);
     if (delta == null || !curDPS) return 0;
     const pct = (delta / curDPS) * 100;
-    if (pct >  5) return  2;
-    if (pct >  2) return  1;
+    if (pct >  5) return  3;
+    if (pct >  2) return  2;
     if (pct < -5) return -2;
     if (pct < -2) return -1;
     return 0;
   }
 
-  // Returns score bump based on EHP% change: >5%→+2, >2%→+1, <-2%→-1, <-5%→-2
+  // Returns score bump based on EHP% change: >5%→+3, >2%→+2, <-2%→-1, <-5%→-2
   function _ehpScoreBump(item, ctx) {
     const c       = ctx ?? selfCtx();
     const curSurv = calcSurvivability(c.maxHpStat, c.def ?? 0);
@@ -2417,8 +2421,8 @@
     const delta = calcItemSurvDelta(item, c);
     if (delta == null) return 0;
     const pct = (delta / curSurv) * 100;
-    if (pct >  5) return  2;
-    if (pct >  2) return  1;
+    if (pct >  5) return  3;
+    if (pct >  2) return  2;
     if (pct < -5) return -2;
     if (pct < -2) return -1;
     return 0;
@@ -2881,7 +2885,7 @@
   function buildTeamSendPlan() {
     const candidates = [];
     for (const tp of Object.values(trackedProfiles)) {
-      if (!tp.active) continue;
+      if (!tp.active || tp.teamMember === false) continue;
       const snap       = latestSnap(tp);
       const eqMap      = snap?.equippedMap || {};
       const profFilter = tp.filterKey ?? state.activeFilterKey;
@@ -3469,22 +3473,59 @@
       return `<div class="sg-hint">No players tracked yet.<br>Inspect someone to start tracking.</div>`;
     }
 
-    const filterKeys = [...state.filters.keys()];
-    const hasBag     = state.bagItemsRaw.length > 0;
-    const sendPlan   = buildTeamSendPlan();
+    const filterKeys  = [...state.filters.keys()];
+    const hasBag      = state.bagItemsRaw.length > 0;
+    const sendPlan    = buildTeamSendPlan();
+    const teamMembers = all.filter(tp => tp.teamMember !== false);
+    const nonMembers  = all.filter(tp => tp.teamMember === false);
 
-    let html = storageWarningBanner() + `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;">
-      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+    const sendStatusColor = state.teamSendStatus.startsWith("Sent") ? "#4ade80"
+      : (state.teamSendStatus.startsWith("Sending") || state.teamSendStatus.startsWith("Attaching")) ? "#93c5fd" : "#fca5a5";
+
+    let html = storageWarningBanner() + `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;flex-wrap:wrap;">
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
         <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team Top Picks</span>
         <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · toggle active to include</span>
-        ${state.teamSendStatus ? `<span style="color:${state.teamSendStatus.startsWith("Sent") ? "#4ade80" : (state.teamSendStatus.startsWith("Sending") || state.teamSendStatus.startsWith("Attaching")) ? "#93c5fd" : "#fca5a5"};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
+        ${state.teamSendStatus ? `<span style="color:${sendStatusColor};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
       </div>
-      <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send top picks via mail to active teammates">
-        📬 ${state.teamSendBusy ? "Sending…" : "Send Top Picks"}
-      </button>
+      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
+        <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send top picks via mail to active teammates">
+          📬 ${state.teamSendBusy ? "Sending…" : "Send Top Picks"}
+        </button>
+        <button class="sg-btn" data-sg-team-manage style="white-space:nowrap;${state.teamManage ? "border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.12);color:#93c5fd;" : ""}" title="${state.teamManage ? "Close member management" : "Add or remove team members"}">
+          ${state.teamManage ? "✓ Done" : `⚙ Members${nonMembers.length ? ` (+${nonMembers.length})` : ""}`}
+        </button>
+      </div>
     </div>`;
 
-    for (const tp of all) {
+    if (state.teamManage) {
+      html += `<div style="background:#080f1c;border-bottom:1px solid rgba(255,255,255,.08);padding:6px 10px;">
+        <div style="color:#93c5fd;font-size:10px;font-weight:600;margin-bottom:5px;">All Tracked Players</div>
+        ${all.map(tp => {
+          const snap   = latestSnap(tp);
+          const inTeam = tp.teamMember !== false;
+          const d = snap ? new Date(snap.ts) : null;
+          const ts = d ? `${d.getDate().toString().padStart(2,"0")}.${(d.getMonth()+1).toString().padStart(2,"0")}` : "";
+          return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03);">
+            <button class="sg-btn sg-team-member-btn" data-team-member="${esc(tp.playerId)}"
+              style="padding:1px 7px;font-size:9px;min-width:64px;${inTeam
+                ? "border-color:rgba(74,222,128,.4);color:#86efac;"
+                : "border-color:rgba(255,255,255,.12);color:#64748b;"}">
+              ${inTeam ? "✓ In Team" : "+ Add"}
+            </button>
+            <span style="color:${inTeam?"#e8eefc":"#4b5563"};font-size:11px;">${esc(tp.username)}</span>
+            <span style="color:#374151;font-size:9px;">${snap ? esc(snap.levelText) : ""}${ts ? ` · ${ts}` : ""}</span>
+          </div>`;
+        }).join("")}
+      </div>`;
+    }
+
+    if (!teamMembers.length) {
+      html += `<div class="sg-hint">No team members yet.<br>Use ⚙ Members to add tracked players.</div>`;
+      return html;
+    }
+
+    for (const tp of teamMembers) {
       const snap = latestSnap(tp);
       if (!snap) continue;
       const eqMap      = snap.equippedMap;
@@ -3576,6 +3617,67 @@
       </button>`;
     }).join("");
 
+    const fmtDate = d => { const dt = new Date(d); return `${dt.getDate().toString().padStart(2,"0")}.${(dt.getMonth()+1).toString().padStart(2,"0")} ${dt.getHours().toString().padStart(2,"0")}:${dt.getMinutes().toString().padStart(2,"0")}`; };
+    const fmtN    = v => v == null ? "—" : (Number.isInteger(v) ? String(v) : v.toFixed(1));
+    const fmtRnd  = v => v == null ? "—" : Math.round(v).toLocaleString();
+
+    function metricDiffRow(label, pv, cv, fmt) {
+      if (pv == null && cv == null) return "";
+      const diff    = (pv != null && cv != null) ? cv - pv : null;
+      const pctStr  = (diff != null && pv && pv !== 0) ? ` ${diff >= 0 ? "+" : ""}${((diff / pv) * 100).toFixed(1)}%` : "";
+      const cls     = diff == null || Math.abs(diff) < 0.05 ? "sg-hist-same" : diff > 0 ? "sg-hist-up" : "sg-hist-dn";
+      const sign    = diff != null && diff > 0 ? "+" : "";
+      const diffStr = diff != null && Math.abs(diff) >= 0.05 ? ` (${sign}${fmt(Math.abs(diff))}${pctStr})` : "";
+      return `<div class="sg-hist-stat-row">
+        <span class="sg-hist-stat-lbl">${label}</span>
+        <span>
+          <span style="color:#64748b;">${pv != null ? fmt(pv) : "—"}</span>
+          <span style="color:#374151;margin:0 3px;">→</span>
+          <span class="${cls}">${cv != null ? fmt(cv) : "—"}${diffStr}</span>
+        </span>
+      </div>`;
+    }
+
+    function currentGearSection(snap) {
+      const slots = GEAR_SLOT_ORDER.filter(s => snap.equippedMap[s]);
+      if (!slots.length) return "";
+      const rows = slots.map(slot => {
+        const item    = snap.equippedMap[slot];
+        const rarity  = (item.rarity ?? "COMMON").toUpperCase();
+        const color   = RARITY_COLOR[rarity] ?? "#7A6E62";
+        const name    = item.name ?? item.type ?? "?";
+        const tier    = item.tier ? ` T${item.tier}` : "";
+        const forge   = item.forgeTier ? ` ${FORGE_TIER_SYMBOL[item.forgeTier] ?? ""}` : "";
+        return `<div class="sg-hist-stat-row">
+          <span class="sg-hist-stat-lbl" style="color:#64748b;">${slot}</span>
+          <span style="color:${color};font-size:10px;">${esc(name)}${esc(tier)}${esc(forge)}</span>
+        </div>`;
+      }).join("");
+      return `<div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
+        <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Current Gear</div>
+        ${rows}
+      </div>`;
+    }
+
+    function currentStatsSection(stats) {
+      const dps  = calcDPS(stats);
+      const ehp  = calcSurvivability(stats.maxHpStat, stats.def ?? 0);
+      const mana = stats.maxManaStat ?? null;
+      const rows = [
+        dps  != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">DPS</span><span style="color:#e8eefc;">${dps.toFixed(1)}</span></div>` : "",
+        ehp  != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">EHP</span><span style="color:#e8eefc;">${Math.round(ehp).toLocaleString()}</span></div>` : "",
+        mana != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">Mana</span><span style="color:#e8eefc;">${Math.round(mana).toLocaleString()}</span></div>` : "",
+        ...Object.entries(STAT_LABELS).map(([key, label]) => {
+          const v = stats[key] ?? null;
+          return v != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">${label}</span><span style="color:#94a3b8;">${fmtN(v)}</span></div>` : "";
+        }),
+      ].filter(Boolean).join("");
+      return rows ? `<div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
+        <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Current Stats</div>
+        ${rows}
+      </div>` : "";
+    }
+
     let diffHtml = "";
     if (selTp && selTp.snapshots.length >= 2) {
       const prev = selTp.snapshots[selTp.snapshots.length - 2];
@@ -3586,7 +3688,11 @@
       const currStats = (curr.charStats && Object.keys(curr.charStats).length)
         ? curr.charStats : deriveCharStatsFromProfile({ equippedMap: curr.equippedMap, levelText: curr.levelText });
 
-      const fmtN = (n) => n == null ? "—" : (Number.isInteger(n) ? String(n) : n.toFixed(1));
+      const metricRows = [
+        metricDiffRow("DPS",  calcDPS(prevStats),                                         calcDPS(currStats),                                         v => v.toFixed(1)),
+        metricDiffRow("EHP",  calcSurvivability(prevStats.maxHpStat, prevStats.def ?? 0), calcSurvivability(currStats.maxHpStat, currStats.def ?? 0), v => Math.round(v).toLocaleString()),
+        metricDiffRow("Mana", prevStats.maxManaStat ?? null,                               currStats.maxManaStat ?? null,                               fmtRnd),
+      ].filter(Boolean).join("");
 
       let statRows = "";
       for (const [key, label] of Object.entries(STAT_LABELS)) {
@@ -3623,23 +3729,36 @@
         </div>`;
       }
 
-      const fmtDate = d => { const dt = new Date(d); return `${dt.getDate().toString().padStart(2,"0")}.${(dt.getMonth()+1).toString().padStart(2,"0")} ${dt.getHours().toString().padStart(2,"0")}:${dt.getMinutes().toString().padStart(2,"0")}`; };
-
       diffHtml = `
         <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
           <b style="font-size:12px;color:#e8eefc;">${esc(selTp.username)}</b>
           <span style="font-size:9px;color:#4b5563;margin-left:6px;">${fmtDate(prev.ts)} → ${fmtDate(curr.ts)}</span>
         </div>
+        ${metricRows ? `<div style="padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
+          <div style="font-size:10px;color:#f59e0b;margin-bottom:4px;">Combat Metrics</div>
+          ${metricRows}
+        </div>` : ""}
         <div style="padding:6px 10px;">
-          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Stats</div>
+          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Stat Changes</div>
           ${statRows || `<div style="color:#374151;font-size:10px;">No stat changes.</div>`}
         </div>
         <div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
-          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Gear</div>
+          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Gear Changes</div>
           ${anyGearChange ? gearRows : `<div style="color:#374151;font-size:10px;">No gear changes.</div>`}
-        </div>`;
-    } else if (selTp) {
-      diffHtml = `<div class="sg-hint">Only 1 snapshot.<br>Inspect again to see changes.</div>`;
+        </div>
+        ${currentGearSection(curr)}`;
+    } else if (selTp && selTp.snapshots.length >= 1) {
+      const snap  = selTp.snapshots[selTp.snapshots.length - 1];
+      const stats = (snap.charStats && Object.keys(snap.charStats).length)
+        ? snap.charStats : deriveCharStatsFromProfile({ equippedMap: snap.equippedMap, levelText: snap.levelText });
+      diffHtml = `
+        <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
+          <b style="font-size:12px;color:#e8eefc;">${esc(selTp.username)}</b>
+          <span style="font-size:9px;color:#4b5563;margin-left:6px;">${fmtDate(snap.ts)}</span>
+          <span style="font-size:9px;color:#374151;margin-left:4px;">(1 snapshot — inspect again to track changes)</span>
+        </div>
+        ${currentStatsSection(stats)}
+        ${currentGearSection(snap)}`;
     } else {
       diffHtml = `<div class="sg-hint">Select a player on the left<br>to view their history.</div>`;
     }
@@ -3981,6 +4100,26 @@
         });
       });
 
+      const manageBtn = body.querySelector("[data-sg-team-manage]");
+      if (manageBtn) {
+        manageBtn.addEventListener("click", e => {
+          e.preventDefault();
+          state.teamManage = !state.teamManage;
+          render();
+        });
+      }
+      body.querySelectorAll(".sg-team-member-btn").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.stopPropagation();
+          const pid = btn.dataset.teamMember;
+          if (pid && trackedProfiles[pid]) {
+            trackedProfiles[pid].teamMember = trackedProfiles[pid].teamMember === false ? true : false;
+            saveTrackedProfiles();
+            render();
+          }
+        });
+      });
+
       const sendTopBtn = body.querySelector("[data-sg-team-send-top]");
       if (sendTopBtn) {
         sendTopBtn.addEventListener("click", e => {
@@ -4075,7 +4214,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.25.0',
+    version:     '8.27.0',
     category:    'fighter',
   });
 })();
