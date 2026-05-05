@@ -6,7 +6,10 @@
 // @match        https://www.voididle.com/*
 // @match        https://voididle.com/*
 // @run-at       document-start
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_listValues
 // ==/UserScript==
 
 (() => {
@@ -60,29 +63,48 @@
   const logger = createLogger('');
 
   // ─── MODULE STORAGE HELPER ──────────────────────────────────────────────────
-  // Returns a namespaced localStorage interface for a single module.
-  // Keys are stored as: voididle.module.{moduleId}.{key}
+  // GM-backed storage: keys live in Tampermonkey extension storage (separate quota).
+  // Keys are namespaced as: voididle.module.{moduleId}.{key}
+  // On first read, migrates any old localStorage copy to GM storage automatically.
   function createModuleStorage(moduleId) {
     const pfx = `voididle.module.${moduleId}.`;
     return {
       get(key, fallback = null) {
         try {
+          const sentinel = '__gm_missing__';
+          const gmVal = GM_getValue(pfx + key, sentinel);
+          if (gmVal !== sentinel) return gmVal;
+          // Migrate: check old localStorage copy and promote it to GM storage
           const raw = localStorage.getItem(pfx + key);
-          return raw !== null ? JSON.parse(raw) : fallback;
+          if (raw !== null) {
+            const parsed = JSON.parse(raw);
+            GM_setValue(pfx + key, parsed);
+            localStorage.removeItem(pfx + key);
+            return parsed;
+          }
+          return fallback;
         } catch { return fallback; }
       },
       set(key, value) {
-        try { localStorage.setItem(pfx + key, JSON.stringify(value)); }
-        catch (err) { logger.warn(`storage.set failed [${moduleId}.${key}]`, err.message); }
+        try {
+          GM_setValue(pfx + key, value);
+          localStorage.removeItem(pfx + key); // Remove stale localStorage copy if any
+        } catch (err) {
+          // Fallback to localStorage if GM fails (e.g. running outside Tampermonkey)
+          try { localStorage.setItem(pfx + key, JSON.stringify(value)); } catch {}
+          logger.warn(`storage.set failed [${moduleId}.${key}]`, err.message);
+        }
       },
       remove(key) {
+        try { GM_deleteValue(pfx + key); } catch {}
         try { localStorage.removeItem(pfx + key); } catch {}
       },
       clear() {
         try {
-          Object.keys(localStorage)
-            .filter(k => k.startsWith(pfx))
-            .forEach(k => localStorage.removeItem(k));
+          GM_listValues().filter(k => k.startsWith(pfx)).forEach(k => GM_deleteValue(k));
+        } catch {}
+        try {
+          Object.keys(localStorage).filter(k => k.startsWith(pfx)).forEach(k => localStorage.removeItem(k));
         } catch {}
       },
     };
@@ -154,6 +176,11 @@
   function freeModuleMemory(id) {
     const gamePrefix = `voididle.module.${id}.`;
     const sourcePrefix = `voididle.loader.module.${id}@`;
+    // Purge GM storage for this module
+    try {
+      GM_listValues().filter(k => k.startsWith(gamePrefix)).forEach(k => GM_deleteValue(k));
+    } catch {}
+    // Purge localStorage for this module
     const toDelete = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);

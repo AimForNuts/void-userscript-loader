@@ -3,16 +3,16 @@
 
   function createLootHelperModule(definition) {
 
+  let _tickInterval = null;
+  let _tooltipObs   = null;
+  let _inspectObs   = null;
+  let _charViewObs  = null;
+  let _cssStyleEl   = null;
+  let _hlStyleEl    = null;
+
   /**************************************************************************
    * CONSTANTS
    **************************************************************************/
-
-  let _tickInterval   = null;
-  let _tooltipObs     = null;
-  let _inspectObs     = null;
-  let _charViewObs    = null;
-  let _cssStyleEl     = null;
-  let _hlStyleEl      = null;
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -41,25 +41,62 @@
   // Forge multipliers on primary stat only
   const FORGE_MULT = { moonforged:1.20, sunforged:1.50 };
 
-  // Primary stat for each slot — quality% on primary = rolled / (T_base_max × rarity_mult × forge_mult)
+  // Primary stat for each slot — quality% on primary = rolled / (subTierAdjustedMax × rarity_mult × forge_mult)
+  // Note: heavy armor Hands primary is DEF (3–4 at T1), not ATK. Light Hands keeps ATK.
   const SLOT_PRIMARY_STAT = {
-    Weapon:"atk", Hands:"atk",
+    Weapon:"atk", Hands:"atk",  // heavy Hands → "def" (see PRIMARY_BASE_RANGES_LIGHT["Heavy Hands (DEF)"])
     Shield:"def", Chest:"def", Helmet:"def", Shoulders:"def", Legs:"def", Boots:"def",
     Amulet:"hp",
     Ring:null,  // random: atk / def / hp
   };
 
-  // Primary base ranges by weapon group, T1–T9 (roll 80–100% of these, then × rarity_mult)
+  // Primary base ranges — Sub II anchor values per tier (redesign 2026-05-03).
+  // Sub I = ÷1.08, Sub III = ×1.08. Roll range: 80–100% of base, then × rarity_mult × forge_mult.
+  // Heavy armor shown; light armor is ~25-33% lower on DEF slots (see PRIMARY_BASE_RANGES_LIGHT).
   const PRIMARY_BASE_RANGES = {
-    "Sword/Bow/Spear": [[10,13],[14,18],[20,25],[27,36],[38,50],[54,70],[75,98],[105,137],[148,192]],
-    "Staff/Harp":      [[ 8,10],[11,14],[16,20],[22,27],[31,38],[43,54],[60,75],[ 84,105],[118,148]],
-    "Fan":             [[ 9,11],[13,15],[18,22],[25,30],[35,42],[48,59],[68,83],[ 95,116],[133,162]],
-    "Hands/Ring(ATK)": [[ 2, 3],[ 3, 4],[ 4, 6],[ 5, 8],[ 8,12],[11,16],[15,23],[ 21, 32],[ 30, 44]],
-    "Shield/Chest":    [[ 6, 8],[ 8,11],[12,16],[16,22],[23,31],[32,43],[45,60],[ 63, 84],[ 89,118]],
-    "Helmet/Shoulders/Legs/Boots/Ring(DEF)":
-                       [[ 4, 5],[ 6, 7],[ 8,10],[11,14],[15,19],[22,27],[30,38],[ 42, 53],[ 59, 74]],
-    "Amulet/Ring(HP)": [[10,13],[14,18],[20,25],[27,36],[38,50],[54,70],[75,98],[105,137],[148,192]],
+    "Sword/Bow/Spear": [[10,13],[15,20],[24,29],[34,46],[52,69],[81,105],[122,159],[184,241],[282,366]],
+    "Staff/Harp":      [[ 8,10],[12,15],[19,24],[28,34],[43,52],[ 64, 81],[ 97,122],[147,184],[225,282]],
+    "Fan":             [[ 9,11],[14,16],[21,26],[32,38],[48,58],[ 72, 88],[110,135],[167,204],[253,309]],
+    "Hands/Ring(ATK)": [[ 2, 3],[ 3, 4],[ 5, 7],[ 6,10],[11,17],[ 16, 24],[ 24, 37],[ 37, 56],[ 57, 84]],
+    "Shield/Heavy Chest":  [[ 6, 8],[ 9,12],[14,19],[20,28],[32,43],[ 48, 64],[ 73, 97],[111,148],[170,225]],
+    "Heavy Helmet/Shoulders/Legs/Boots/Ring(DEF)":
+                       [[ 4, 5],[ 7, 8],[ 9,12],[14,18],[21,26],[ 33, 40],[ 49, 62],[ 74, 93],[112,141]],
+    "Amulet/Ring(HP)": [[10,13],[15,20],[24,29],[34,46],[52,69],[81,105],[122,159],[184,241],[282,366]],
   };
+
+  // Light armor DEF primary is ~20-33% lower than heavy. T1 values from doc; T2-T9 scale similarly.
+  const PRIMARY_BASE_RANGES_LIGHT = {
+    "Light Chest":                    [[ 4, 6],[ 6, 9],[10,13],[14,20],[23,30],[34,45],[52,69],[ 79,105],[120,159]],
+    "Light Helmet/Shoulders/Legs/Boots": [[ 3, 4],[ 5, 6],[ 7, 9],[11,14],[16,20],[26,31],[38,48],[ 58, 72],[ 87,110]],
+    "Heavy Hands (DEF)":              [[ 3, 4],[ 3, 4],[ 5, 7],[ 6,10],[11,17],[ 16, 24],[ 24, 37],[ 37, 56],[ 57, 84]],
+  };
+
+  // Sub-tier gear-req level breakpoints (redesign 2026-05-03).
+  // Quality = rolled / (subTierAdjustedMax × rarity_mult × forge_mult)
+  // Sub I = anchor ÷ 1.08, Sub II = anchor (table values), Sub III = anchor × 1.08
+  const SUB_TIER_BREAKPOINTS = [
+    // [tier, subI_gearReqLv, subII_gearReqLv, subIII_gearReqLv]
+    [1,   1,   8,  13],
+    [2,   7,  12,  17],
+    [3,  21,  27,  33],
+    [4,  37,  44,  51],
+    [5,  55,  63,  71],
+    [6,  75,  83,  91],
+    [7,  95, 103, 111],
+    [8, 115, 125, 135],
+    [9, 139, 151, 163],
+  ];
+
+  // Returns { tier, sub (1/2/3), factor (÷1.08 / ×1 / ×1.08) } from a gear-req level.
+  function subTierFromGearReq(gearReq) {
+    for (let i = SUB_TIER_BREAKPOINTS.length - 1; i >= 0; i--) {
+      const [tier, s1, s2, s3] = SUB_TIER_BREAKPOINTS[i];
+      if (gearReq >= s3) return { tier, sub: 3, factor: 1.08 };
+      if (gearReq >= s2) return { tier, sub: 2, factor: 1.00 };
+      if (gearReq >= s1) return { tier, sub: 1, factor: 1 / 1.08 };
+    }
+    return { tier: 1, sub: 1, factor: 1 / 1.08 };
+  }
 
   // Bonus stat roll ranges (80–100% of these values; same pool regardless of item rarity)
   // { min, max, step } — quality% = rolled / max
@@ -275,12 +312,90 @@
    * TEAM PROFILES
    **************************************************************************/
 
-  const TEAM_KEY = "sgTeamProfiles";
-  const teamProfiles = (() => {
-    try { return JSON.parse(localStorage.getItem(TEAM_KEY) || "{}"); } catch { return {}; }
-  })();
-  function saveTeamProfiles() {
-    try { localStorage.setItem(TEAM_KEY, JSON.stringify(teamProfiles)); } catch {}
+  // Key used with _moduleApp.storage (loader adds "voididle.module.loot-helper." prefix → GM storage)
+  const TRACKED_KEY = "sgTrackedProfiles";
+  let trackedProfiles = {}; // populated by loadTrackedProfiles() during boot()
+
+  function loadTrackedProfiles() {
+    let stored = {};
+    if (_moduleApp) {
+      // Primary: loader's GM-backed storage
+      stored = _moduleApp.storage.get(TRACKED_KEY) ?? {};
+      // One-time migration: promote old direct localStorage key into GM storage
+      if (!Object.keys(stored).length) {
+        try {
+          const legacy = JSON.parse(localStorage.getItem("sgTrackedProfiles") || "{}");
+          if (Object.keys(legacy).length) {
+            stored = legacy;
+            _moduleApp.storage.set(TRACKED_KEY, stored);
+            localStorage.removeItem("sgTrackedProfiles");
+          }
+        } catch {}
+      }
+    } else {
+      // Standalone mode (no loader): fall back to localStorage
+      try { stored = JSON.parse(localStorage.getItem("sgTrackedProfiles") || "{}"); } catch {}
+    }
+
+    // Migrate old sgTeamProfiles format
+    const old = (() => { try { return JSON.parse(localStorage.getItem("sgTeamProfiles") || "{}"); } catch { return {}; } })();
+    for (const [pid, p] of Object.entries(old)) {
+      if (!stored[pid] && p.equippedMap) {
+        stored[pid] = {
+          playerId: pid, username: p.username,
+          active: true, filterKey: p.filterKey ?? "",
+          snapshots: [{ ts: p.savedAt ?? Date.now(), levelText: p.levelText ?? "", equippedMap: p.equippedMap, charStats: p.charStats ?? {} }],
+        };
+      }
+    }
+    for (const p of Object.values(stored)) {
+      if (p.teamMember === undefined) p.teamMember = true;
+    }
+
+    Object.assign(trackedProfiles, stored);
+    storageUsedKB = estimateStorageKB(); // refresh after any migration cleared localStorage
+  }
+
+  const STORAGE_WARN_KB  = 4000;
+  const STORAGE_LIMIT_KB = 5120;
+  const MAX_SNAPSHOTS    = 50;
+
+  function estimateStorageKB() {
+    let total = 0;
+    try { for (const k of Object.keys(localStorage)) total += (localStorage.getItem(k)?.length ?? 0) * 2; } catch {}
+    return Math.round(total / 1024);
+  }
+  let storageUsedKB = estimateStorageKB();
+
+  function saveTrackedProfiles() {
+    try {
+      if (_moduleApp) {
+        _moduleApp.storage.set(TRACKED_KEY, trackedProfiles);
+      } else {
+        localStorage.setItem("sgTrackedProfiles", JSON.stringify(trackedProfiles));
+      }
+    } catch {}
+    storageUsedKB = estimateStorageKB();
+  }
+
+  // Pending modal info keyed by playerId (for auto-save when DOM loads before API response)
+  const pendingModalInfo = {};
+
+  function latestSnap(tp) {
+    return tp?.snapshots?.[tp.snapshots.length - 1] ?? null;
+  }
+
+  function recordSnapshot(playerId, username, levelText, data) {
+    const equippedMap = buildEquippedMap(data.equipped);
+    const charStats   = parseInspectCharStats(data);
+    if (!trackedProfiles[playerId]) {
+      trackedProfiles[playerId] = { playerId, username, active: true, teamMember: false, filterKey: "", snapshots: [] };
+    }
+    const tp = trackedProfiles[playerId];
+    tp.username = username;
+    tp.snapshots.push({ ts: Date.now(), levelText, equippedMap, charStats });
+    if (tp.snapshots.length > MAX_SNAPSHOTS) tp.snapshots.shift();
+    saveTrackedProfiles();
   }
 
   // Pending inspect data keyed by playerId (captured from fetch intercept)
@@ -315,6 +430,8 @@
         res.clone().json().then(data => {
           if (Array.isArray(data.equipped)) {
             pendingInspect[m[1]] = data;
+            const info = pendingModalInfo[m[1]];
+            if (info) recordSnapshot(m[1], info.username, info.levelText, data);
           }
         }).catch(() => {});
       }
@@ -480,26 +597,28 @@
 
   function marketCtx() {
     if (!state.marketCtxPlayerId) return selfCtx();
-    const profile = teamProfiles[state.marketCtxPlayerId];
-    if (!profile) return selfCtx();
-    return deriveCharStatsFromProfile(profile);
+    const tp   = trackedProfiles[state.marketCtxPlayerId];
+    const snap = latestSnap(tp);
+    if (!snap) return selfCtx();
+    return deriveCharStatsFromProfile({ equippedMap: snap.equippedMap, levelText: snap.levelText });
   }
 
   function marketCtxFilterKey() {
     if (!state.marketCtxPlayerId) return state.activeFilterKey;
-    const profile = teamProfiles[state.marketCtxPlayerId];
-    return profile?.filterKey ?? state.activeFilterKey;
+    const tp = trackedProfiles[state.marketCtxPlayerId];
+    return tp?.filterKey ?? state.activeFilterKey;
   }
 
   function rebuildMarketItems() {
     if (!state.marketRawData.length) { state.marketItems = []; return; }
 
     let equippedMap, filterKey, ctxLevel;
-    if (state.marketCtxPlayerId && teamProfiles[state.marketCtxPlayerId]) {
-      const profile = teamProfiles[state.marketCtxPlayerId];
-      equippedMap = profile.equippedMap;
-      filterKey   = profile.filterKey ?? state.activeFilterKey;
-      ctxLevel    = parseInt((profile.levelText ?? "").replace(/\D/g, ""), 10) || 0;
+    if (state.marketCtxPlayerId && trackedProfiles[state.marketCtxPlayerId]) {
+      const tp   = trackedProfiles[state.marketCtxPlayerId];
+      const snap = latestSnap(tp);
+      equippedMap = snap?.equippedMap ?? {};
+      filterKey   = tp.filterKey ?? state.activeFilterKey;
+      ctxLevel    = parseInt((snap?.levelText ?? "").replace(/\D/g, ""), 10) || 0;
     } else {
       state.marketCtxPlayerId = null;
       equippedMap = state.equipped;
@@ -508,12 +627,14 @@
     }
 
     const mwt = Math.floor(ctxLevel / 10) + 1;
-    state.marketItems = state.marketRawData.map(r =>
-      ({ ..._buildBagItem(r.item, equippedMap, filterKey),
-         listingId: r.listingId, price: r.price,
-         sellerName: r.sellerName, itemTier: r.itemTier,
-         isFutureTier: (r.itemTier - mwt) > 1 })
-    );
+    state.marketItems = state.marketRawData.map(r => {
+      const isFutureTier = r.gearReqLevel != null
+        ? r.gearReqLevel > ctxLevel          // sub-tier-aware: gear-req level exceeds player level
+        : (r.itemTier - mwt) > 1;            // fallback: tier proxy until server exposes gearReqLevel
+      return { ..._buildBagItem(r.item, equippedMap, filterKey),
+               listingId: r.listingId, price: r.price,
+               sellerName: r.sellerName, itemTier: r.itemTier, isFutureTier };
+    });
     state.marketCtxMwt = mwt;
   }
 
@@ -564,6 +685,8 @@
     marketCtxMwt: 1,
     teamSendStatus: "", teamSendBusy: false,
     salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(),
+    historySelectedPlayer: null,
+    teamManage: false,
   };
 
   /**************************************************************************
@@ -638,7 +761,7 @@
   );
 
   function parseChatTooltip(el) {
-    // .tt-sub direct text node: "MYTHIC · AMULET" (tier is in a child <span>)
+    // .tt-sub direct text node: "MYTHIC · AMULET" or "MYTHIC MOONFORGED · SWORD"
     const subEl = el.querySelector(".tt-sub");
     let subText = "";
     if (subEl) {
@@ -670,19 +793,56 @@
       }
     });
 
-    // Read armorWeight from any element containing "Light Armor" or "Heavy Armor"
-    let armorWeight = null;
     const allText = el.textContent ?? "";
+
+    // Forge tier — check sub text and full text (sub may read "MYTHIC MOONFORGED · SWORD")
+    let forgeTier = null;
+    if (/sunforged/i.test(allText))  forgeTier = "sunforged";
+    else if (/moonforged/i.test(allText)) forgeTier = "moonforged";
+    else if (/starforged/i.test(allText)) forgeTier = "starforged";
+
+    // Enhancement level (+1–+20) — find "+N" in tooltip header before any stat rows
+    // Strip stat-row text so we don't confuse "+11 ATK" with a +11 enhancement
+    let plusLevel = 0;
+    const firstStatRow = el.querySelector(".tt-stat-row");
+    const headerText = firstStatRow
+      ? allText.substring(0, allText.indexOf(firstStatRow.textContent.trim())).trim()
+      : allText;
+    const plusMatch = headerText.match(/\+(\d{1,2})(?!\d)/);
+    if (plusMatch) plusLevel = parseInt(plusMatch[1]);
+
+    // Armor weight
+    let armorWeight = null;
     if (/heavy\s*armor/i.test(allText)) armorWeight = "heavy";
     else if (/light\s*armor/i.test(allText)) armorWeight = "light";
 
-    return { rarity, slot, typePart, stats: ttStats, qualities: ttQualities, armorWeight };
+    return { rarity, slot, typePart, stats: ttStats, qualities: ttQualities,
+             forgeTier, plusLevel, armorWeight };
+  }
+
+  // Enhancement stat multiplier for +1–+20 enhancement levels
+  function calcEnhMult(n) {
+    if (n <= 0)  return 1;
+    if (n <= 5)  return 1 + n * 0.05;
+    if (n <= 10) return 1.25 + (n - 5)  * 0.08;
+    if (n <= 15) return 1.65 + (n - 10) * 0.12;
+    return                2.25 + (n - 15) * 0.18;
+  }
+
+  // Primary stat key for a given slot (forge mult only applies to primary)
+  function primaryStatForSlot(slot, armorWeight) {
+    if (slot === "Weapon") return "atk";
+    if (slot === "Hands")  return armorWeight === "heavy" ? "def" : "atk";
+    if (slot === "Amulet") return "hp";
+    if (slot === "Ring")   return null;
+    return "def"; // Shield, Chest, Helmet, Shoulders, Legs, Boots
   }
 
   function injectChatComparison(el) {
     if (el.querySelector(".sg-chat-compare")) return;
 
-    const { rarity, slot, typePart, stats: ttStats, qualities: ttQualities, armorWeight } = parseChatTooltip(el);
+    const { rarity, slot, typePart, stats: ttStats, qualities: ttQualities,
+            forgeTier, plusLevel, armorWeight } = parseChatTooltip(el);
     const div = document.createElement("div");
     div.className = "sg-chat-compare";
 
@@ -700,18 +860,29 @@
       return;
     }
 
-    // Equipped item base stats (no forge/rune inflation)
+    // Equipped item base stats (raw rolls, no forge/rune/enhancement inflation)
     const eqBaseStats = {};
     for (const [k, v] of Object.entries(equippedItem.stats)) {
       if (k === "_qualities") continue;
       eqBaseStats[normStatKey(k)] = v;
     }
 
-    // Diffs: tooltip stats vs equipped base
-    const allKeys = new Set([...Object.keys(ttStats), ...Object.keys(eqBaseStats)]);
+    // De-inflate chat item's displayed stats → base stats for fair base-vs-base comparison.
+    // Tooltip shows total values: primary = base × forgeMult × enhMult, bonus = base × enhMult.
+    const forgeMult  = FORGE_MULT[forgeTier] ?? 1;
+    const enhMult    = calcEnhMult(plusLevel);
+    const primaryStat = primaryStatForSlot(slot, armorWeight);
+    const ttBaseStats = {};
+    for (const [sk, v] of Object.entries(ttStats)) {
+      const divisor = (sk === primaryStat) ? forgeMult * enhMult : enhMult;
+      ttBaseStats[sk] = divisor !== 1 ? v / divisor : v;
+    }
+
+    // Diffs: chat item base stats vs equipped base stats
+    const allKeys = new Set([...Object.keys(ttBaseStats), ...Object.keys(eqBaseStats)]);
     const diffs   = [];
     for (const sk of allKeys) {
-      const delta = (ttStats[sk] ?? 0) - (eqBaseStats[sk] ?? 0);
+      const delta = (ttBaseStats[sk] ?? 0) - (eqBaseStats[sk] ?? 0);
       if (Math.abs(delta) < 0.001) continue;
       const label = STAT_DEFS.find(d => d.key === sk)?.label ?? sk;
       diffs.push({ text:`${label} ${fmtDelta(delta)}`, stat:sk, isUp:delta>0, isDown:delta<0 });
@@ -719,7 +890,7 @@
 
     // Score + recommendation using active filter
     const activeFC      = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const itemStatKeys  = new Set(Object.keys(ttStats));
+    const itemStatKeys  = new Set(Object.keys(ttBaseStats));
     const maxSlots      = RARITY_STAT_SLOTS[rarity.toUpperCase()] ?? 4;
     const multiRollCount = Math.max(0, maxSlots - itemStatKeys.size);
     const priorityUps   = diffs.filter(d => d.isUp && activeFC.stats.has(d.stat)).length;
@@ -770,24 +941,23 @@
       return `<span class="sg-diff ${d.isUp?"sg-diff-up":"sg-diff-down"}${isStar?" pref-star":isPref?" pref":""}">${esc(d.text)}</span>`;
     }).join("");
 
-    // DPS delta: simulate swapping this item in
+    // DPS / EHP / Mana deltas — use selfCtx() so derived gear stats work even without char-screen open
+    const sc = selfCtx();
     let dpsDeltaHtml = "";
-    if (state.atkPhys != null && state.atkSpeed != null && state.atkSpeed > 0) {
-      const curDPS         = calcDPS();
-      const curAllStats    = state.allStats ?? 0;
-      const atkDelta       = (ttStats.atk       ?? 0) - (eqBaseStats.atk       ?? 0);
-      const allStatsDelta  = (ttStats.allStats   ?? 0) - (eqBaseStats.allStats  ?? 0);
+    if (sc.atkPhys != null && sc.atkSpeed != null && sc.atkSpeed > 0) {
+      const curDPS         = calcDPS(sc);
+      const curAllStats    = sc.allStats ?? 0;
+      const atkDelta       = (ttBaseStats.atk       ?? 0) - (eqBaseStats.atk       ?? 0);
+      const allStatsDelta  = (ttBaseStats.allStats   ?? 0) - (eqBaseStats.allStats  ?? 0);
       const eqSpdPct       = eqBaseStats.atkSpeed ?? 0;
-      const newSpdPct      = ttStats.atkSpeed    ?? 0;
-      // allStats multiplies all ATK sources, so back-compute baseATK then re-apply new multiplier
-      const baseATK        = state.atkPhys / (1 + curAllStats / 100);
+      const newSpdPct      = ttBaseStats.atkSpeed    ?? 0;
+      const baseATK        = sc.atkPhys / (1 + curAllStats / 100);
       const newAtk         = (baseATK + atkDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-      // atkSpeed stat is a % bonus that shortens the attack interval
-      const newSpd         = state.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
-      const newCrit        = (state.critChance ?? 0) + (ttStats.critChance ?? 0) - (eqBaseStats.critChance ?? 0);
-      const newCritD       = (state.critDmg    ?? 0) + (ttStats.critDmg    ?? 0) - (eqBaseStats.critDmg    ?? 0);
+      const newSpd         = sc.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
+      const newCrit        = (sc.critChance ?? 0) + (ttBaseStats.critChance ?? 0) - (eqBaseStats.critChance ?? 0);
+      const newCritD       = (sc.critDmg    ?? 0) + (ttBaseStats.critDmg    ?? 0) - (eqBaseStats.critDmg    ?? 0);
       if (curDPS != null && newAtk > 0 && newSpd > 0) {
-        const hitRate = (state.hitChance ?? 95) / 100;
+        const hitRate = (sc.hitChance ?? 95) / 100;
         const newDPS  = (newAtk / newSpd) * hitRate * (1 + (newCrit / 100) * ((newCritD / 100) - 1));
         const delta   = newDPS - curDPS;
         const pct     = (delta / curDPS) * 100;
@@ -800,14 +970,14 @@
     // EHP delta
     let survDeltaHtml = "";
     {
-      const curSurv = calcSurvivability(state.maxHpStat, state.def ?? 0);
+      const curSurv = calcSurvivability(sc.maxHpStat, sc.def ?? 0);
       if (curSurv) {
-        const curAllStats   = state.allStats ?? 0;
-        const allStatsDelta = (ttStats.allStats ?? 0) - (eqBaseStats.allStats ?? 0);
-        const hpDelta       = (ttStats.hp  ?? 0) - (eqBaseStats.hp  ?? 0);
-        const defDelta      = (ttStats.def ?? 0) - (eqBaseStats.def ?? 0);
-        const baseHP  = state.maxHpStat / (1 + curAllStats / 100);
-        const baseDEF = (state.def ?? 0) / (1 + curAllStats / 100);
+        const curAllStats   = sc.allStats ?? 0;
+        const allStatsDelta = (ttBaseStats.allStats ?? 0) - (eqBaseStats.allStats ?? 0);
+        const hpDelta       = (ttBaseStats.hp  ?? 0) - (eqBaseStats.hp  ?? 0);
+        const defDelta      = (ttBaseStats.def ?? 0) - (eqBaseStats.def ?? 0);
+        const baseHP  = sc.maxHpStat / (1 + curAllStats / 100);
+        const baseDEF = (sc.def ?? 0) / (1 + curAllStats / 100);
         const newHP   = (baseHP  + hpDelta)  * (1 + (curAllStats + allStatsDelta) / 100);
         const newDEF  = (baseDEF + defDelta) * (1 + (curAllStats + allStatsDelta) / 100);
         const newSurv = calcSurvivability(newHP, newDEF);
@@ -823,19 +993,19 @@
       }
     }
 
-    // Combined mana score: pool + regen × 30
+    // Combined mana score: pool + regen × 3
     let manaDeltaHtml = "";
     {
-      const curAllStats   = state.allStats ?? 0;
-      const allStatsDelta = (ttStats.allStats  ?? 0) - (eqBaseStats.allStats  ?? 0);
-      const manaDelta     = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
-      const mregenDelta   = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
+      const curAllStats   = sc.allStats ?? 0;
+      const allStatsDelta = (ttBaseStats.allStats  ?? 0) - (eqBaseStats.allStats  ?? 0);
+      const manaDelta     = (ttBaseStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
+      const mregenDelta   = (ttBaseStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
       if (manaDelta !== 0 || mregenDelta !== 0 || allStatsDelta !== 0) {
-        const baseMana   = (state.maxManaStat ?? 0) / (1 + curAllStats / 100);
-        const baseMRegen = (state.manaRegen  ?? 0)  / (1 + curAllStats / 100);
+        const baseMana   = (sc.maxManaStat ?? 0) / (1 + curAllStats / 100);
+        const baseMRegen = (sc.manaRegen  ?? 0)  / (1 + curAllStats / 100);
         const newMana    = (baseMana   + manaDelta)   * (1 + (curAllStats + allStatsDelta) / 100);
         const newMRegen  = (baseMRegen + mregenDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-        const score = (newMana - (state.maxManaStat ?? 0)) + (newMRegen - (state.manaRegen ?? 0)) * 3;
+        const score = (newMana - (sc.maxManaStat ?? 0)) + (newMRegen - (sc.manaRegen ?? 0)) * 3;
         if (Math.abs(score) >= 1) {
           const sign = score >= 0 ? "+" : "";
           const col  = score > 0 ? "#60a5fa" : "#f87171";
@@ -1195,8 +1365,8 @@
       filterHasPrefMR[key]     = multiRollCount > 0 && [...itemStatKeys].some(s => fc.preferredStats.has(s));
     }
 
-    const activeKey     = filterKeyOverride ?? state.activeFilterKey;
-    const activeFC      = state.filters.get(activeKey);
+    const activeKey     = filterKeyOverride || state.activeFilterKey;
+    const activeFC      = state.filters.get(activeKey) ?? mkFC([]);
     const prefScore     = filterScores[activeKey]        ?? 0;
     const activePriUps  = filterPriorityUps[activeKey]   ?? 0;
     const activePriMR   = filterHasPriorityMR[activeKey] ?? false;
@@ -1314,9 +1484,10 @@
       };
 
       const itemTier     = raw.itemTier ?? 1;
-      const isFutureTier = (itemTier - mwt) > 1;
+      // Try API field names for gear-req level (set by server with sub-tier system)
+      const gearReqLevel = raw.gearReqLevel ?? raw.gear_req_level ?? raw.reqLevel ?? raw.level_req ?? raw.itemLevelReq ?? null;
       raws.push({ item, listingId: listing.id, price: listing.price,
-                  sellerName: listing.sellerName, itemTier, isFutureTier });
+                  sellerName: listing.sellerName, itemTier, gearReqLevel });
     });
 
     state.marketRawData = raws;
@@ -1629,13 +1800,12 @@
     .c-green{color:#86efac;} .c-blue{color:#93c5fd;} .c-gold{color:#fde68a;}
     .c-orange{color:#fb923c;} .c-red{color:#fca5a5;} .c-purple{color:#c084fc;} .c-muted{color:#64748b;}
 
-    .sg-inspect-save {
+    .sg-inspect-badge {
       position:absolute; top:10px; right:40px;
-      background:#172554; color:#93c5fd;
-      border:1px solid rgba(59,130,246,.4); border-radius:6px;
-      padding:4px 10px; font:11px Inter,sans-serif; cursor:pointer; z-index:10;
+      background:#172554; color:#4ade80;
+      border:1px solid rgba(74,222,128,.3); border-radius:6px;
+      padding:4px 10px; font:11px Inter,sans-serif; z-index:10; pointer-events:none;
     }
-    .sg-inspect-save:hover { background:#1e3a8a; }
     .sg-team-header {
       display:flex; align-items:center; justify-content:space-between;
       padding:8px 10px; cursor:pointer; user-select:none;
@@ -1643,6 +1813,37 @@
     }
     .sg-team-header:hover { background:rgba(255,255,255,.02); }
     .sg-team-body.collapsed { display:none; }
+    .sg-team-toggle {
+      width:30px; height:16px; border-radius:8px; border:none; cursor:pointer;
+      background:#1e293b; position:relative; flex-shrink:0; transition:background .2s;
+    }
+    .sg-team-toggle.on { background:rgba(59,130,246,.6); }
+    .sg-team-toggle::after {
+      content:""; position:absolute; top:2px; left:2px;
+      width:12px; height:12px; border-radius:50%; background:#94a3b8; transition:left .15s;
+    }
+    .sg-team-toggle.on::after { left:16px; background:#e0f2fe; }
+    .sg-storage-warn {
+      margin:6px 8px 2px; padding:5px 8px; border-radius:5px; font-size:10px;
+      background:rgba(251,191,36,.08); border:1px solid rgba(251,191,36,.25); color:#fbbf24;
+    }
+    .sg-storage-warn.crit {
+      background:rgba(248,113,113,.1); border-color:rgba(248,113,113,.3); color:#f87171;
+    }
+    .sg-hist-player-btn {
+      display:block; width:100%; text-align:left; padding:6px 10px;
+      background:none; border:none; border-bottom:1px solid rgba(255,255,255,.04);
+      color:#94a3b8; font:11px Inter,sans-serif; cursor:pointer;
+    }
+    .sg-hist-player-btn:hover { background:rgba(255,255,255,.03); color:#e2e8f0; }
+    .sg-hist-player-btn.active { color:#93c5fd; background:rgba(59,130,246,.1); }
+    .sg-hist-slot { display:flex; gap:6px; align-items:baseline; padding:2px 0; font-size:10px; }
+    .sg-hist-slot-name { color:#4b5563; min-width:62px; }
+    .sg-hist-stat-row { display:flex; justify-content:space-between; padding:2px 0; font-size:10px; }
+    .sg-hist-stat-lbl { color:#4b5563; }
+    .sg-hist-up { color:#4ade80; }
+    .sg-hist-dn { color:#f87171; }
+    .sg-hist-same { color:#64748b; }
 
     .sg-footer {
       text-align:center; font-size:9px; color:#1e293b;
@@ -1692,6 +1893,7 @@
         <button class="sg-tab"        data-tab="filters">⚙️ Filters</button>
         <button class="sg-tab"        data-tab="market">🏪 Market</button>
         <button class="sg-tab"        data-tab="team">👥 Team</button>
+        <button class="sg-tab"        data-tab="history">📜 History</button>
       </div>
       <div class="sg-body" id="sgBody"><div class="sg-hint">Waiting for data…</div></div>
     `;
@@ -1703,7 +1905,7 @@
         container.querySelectorAll(".sg-tab").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
         state.activeTab = btn.dataset.tab;
-        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team";
+        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team" || state.activeTab === "history";
         if (_moduleApp) {
           panelEl.style.width = isWide ? "480px" : "310px";
         } else {
@@ -1955,7 +2157,7 @@
         <span class="sg-filter-name">${esc(key)}</span>
         <span class="sg-filter-statcount">${fc.stats.size + fc.preferredStats.size} stats${fc.preferredStats.size ? ` · ★${fc.preferredStats.size}` : ""}</span>
         <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter (items won't be scored by this filter)":"Enable filter"}">${fc.enabled?"●":"○"}</button>
-        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts item score (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts item score (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
+        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts score: >2%→+2, >5%→+3, <-2%→-2, <-5%→-3 (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts score: >2%→+2, >5%→+3, <-2%→-2, <-5%→-3 (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
         <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: choose which stats are Liked (♥ ±2) or Preferred (★ ±4)">✏</button>
         ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}" title="Delete this filter">✗</button>`:""}
       </div>`;
@@ -2153,13 +2355,16 @@
    **************************************************************************/
 
   function _marketCtxSelectorHtml() {
-    const profiles = Object.values(teamProfiles).sort((a, b) => b.savedAt - a.savedAt);
-    if (!profiles.length) return "";
-    const opts = profiles.map(p => {
-      const eqWeapon = Object.values(p.equippedMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
+    const tracked = Object.values(trackedProfiles)
+      .filter(tp => tp.snapshots.length > 0)
+      .sort((a, b) => (latestSnap(b)?.ts ?? 0) - (latestSnap(a)?.ts ?? 0));
+    if (!tracked.length) return "";
+    const opts = tracked.map(tp => {
+      const snap     = latestSnap(tp);
+      const eqWeapon = snap ? Object.values(snap.equippedMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon") : null;
       const icon     = eqWeapon ? (ITEM_ICONS[eqWeapon.type] ?? "⚔️") : "👤";
-      const sel      = state.marketCtxPlayerId === p.playerId ? " selected" : "";
-      return `<option value="${esc(p.playerId)}"${sel}>${icon} ${esc(p.username)}</option>`;
+      const sel      = state.marketCtxPlayerId === tp.playerId ? " selected" : "";
+      return `<option value="${esc(tp.playerId)}"${sel}>${icon} ${esc(tp.username)}</option>`;
     }).join("");
     return `<select id="sgMktCtx" style="font-size:10px;background:#0f172a;color:#e8eefc;border:1px solid #1e293b;border-radius:4px;padding:1px 4px;cursor:pointer;">
       <option value=""${!state.marketCtxPlayerId ? " selected" : ""}>👤 Me</option>
@@ -2174,7 +2379,7 @@
     if (!state.marketItems.length) {
       return `<div class="sg-hint">No gear listings visible.<br>Switch to Weapons / Armor / Jewelry.</div>`;
     }
-    const ctxProfile = state.marketCtxPlayerId ? teamProfiles[state.marketCtxPlayerId] : null;
+    const ctxProfile = state.marketCtxPlayerId ? trackedProfiles[state.marketCtxPlayerId] : null;
     if (!ctxProfile && !Object.keys(state.equipped).length) {
       return `<div class="sg-hint" style="padding:6px 10px;">No equipped gear cached — open inventory first for diffs.</div>`;
     }
@@ -2307,21 +2512,21 @@
     return `<span class="sg-badge sg-badge-multi">${label} Roll <span style="color:${qColor};font-weight:700;">${qPct}%</span>${note}</span>`;
   }
 
-  // Returns score bump based on DPS% change: >5%→+2, >2%→+1, <-2%→-1, <-5%→-2
+  // Returns score bump based on DPS% change: >5%→+3, >2%→+2, <-2%→-2, <-5%→-3
   function _dpsScoreBump(item, ctx) {
     const c      = ctx ?? selfCtx();
     const delta  = calcItemDpsDelta(item, c);
     const curDPS = calcDPS(c);
     if (delta == null || !curDPS) return 0;
     const pct = (delta / curDPS) * 100;
-    if (pct >  5) return  2;
-    if (pct >  2) return  1;
-    if (pct < -5) return -2;
-    if (pct < -2) return -1;
+    if (pct >  5) return  3;
+    if (pct >  2) return  2;
+    if (pct < -5) return -3;
+    if (pct < -2) return -2;
     return 0;
   }
 
-  // Returns score bump based on EHP% change: >5%→+2, >2%→+1, <-2%→-1, <-5%→-2
+  // Returns score bump based on EHP% change: >5%→+3, >2%→+2, <-2%→-2, <-5%→-3
   function _ehpScoreBump(item, ctx) {
     const c       = ctx ?? selfCtx();
     const curSurv = calcSurvivability(c.maxHpStat, c.def ?? 0);
@@ -2329,10 +2534,10 @@
     const delta = calcItemSurvDelta(item, c);
     if (delta == null) return 0;
     const pct = (delta / curSurv) * 100;
-    if (pct >  5) return  2;
-    if (pct >  2) return  1;
-    if (pct < -5) return -2;
-    if (pct < -2) return -1;
+    if (pct >  5) return  3;
+    if (pct >  2) return  2;
+    if (pct < -5) return -3;
+    if (pct < -2) return -2;
     return 0;
   }
 
@@ -2792,9 +2997,13 @@
 
   function buildTeamSendPlan() {
     const candidates = [];
-    for (const profile of Object.values(teamProfiles)) {
-      const eqMap      = profile.equippedMap || {};
-      const profFilter = profile.filterKey ?? state.activeFilterKey;
+    for (const tp of Object.values(trackedProfiles)) {
+      if (!tp.active || tp.teamMember === false) continue;
+      const snap       = latestSnap(tp);
+      const eqMap      = snap?.equippedMap || {};
+      const profFilter = tp.filterKey || state.activeFilterKey;
+      // Expose a profile-shaped object for mail functions that expect .username/.playerId
+      const profile = { playerId: tp.playerId, username: tp.username, equippedMap: eqMap, filterKey: tp.filterKey };
       for (const raw of state.bagItemsRaw) {
         const ev = _buildBagItem(raw, eqMap, profFilter);
         if (ev.cat !== "top") continue;
@@ -3232,14 +3441,16 @@
   async function sendSingleTeamTopPick(profileId, itemId) {
     if (state.teamSendBusy) return;
 
-    const profile = teamProfiles[profileId];
-    if (!profile) {
+    const tp = trackedProfiles[profileId];
+    if (!tp) {
       state.teamSendStatus = "Could not find that teammate profile.";
       render();
       return;
     }
+    const snap   = latestSnap(tp);
+    const profile = { playerId: tp.playerId, username: tp.username, equippedMap: snap?.equippedMap ?? {}, filterKey: tp.filterKey };
 
-    const eqMap      = profile.equippedMap || {};
+    const eqMap      = profile.equippedMap;
     const profFilter = profile.filterKey ?? state.activeFilterKey;
     const raw        = state.bagItemsRaw.find(i => String(i.id) === String(itemId));
     if (!raw) {
@@ -3357,66 +3568,124 @@
 
   const teamOpen = {};   // profileId → bool (section expanded state)
 
-  function renderTeam() {
-    const profiles = Object.values(teamProfiles).sort((a, b) => b.savedAt - a.savedAt);
-
-    if (!profiles.length) {
-      return `<div class="sg-hint">No profiles saved yet.<br>Click <b>Inspect</b> on a player<br>then hit <b>💾 Save Profile</b>.</div>`;
-    }
-    if (!state.bagItemsRaw.length) {
-      return `<div class="sg-hint">Open <strong>Inventory</strong><br>to load your bag items first.</div>`;
-    }
-
-    const filterKeys = [...state.filters.keys()];
-    const sendPlan   = buildTeamSendPlan();
-
-    let html = `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;">
-      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-        <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team Top Picks</span>
-        <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · one best teammate per item</span>
-        ${state.teamSendStatus ? `<span style="color:${state.teamSendStatus.startsWith("Sent") ? "#4ade80" : (state.teamSendStatus.startsWith("Sending") || state.teamSendStatus.startsWith("Attaching")) ? "#93c5fd" : "#fca5a5"};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
-      </div>
-      <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Open Mail > New Mail, attach all Top Picks for each teammate, then send one mail per teammate">
-        📬 ${state.teamSendBusy ? "Sending…" : "Send Top Picks"}
-      </button>
+  function storageWarningBanner() {
+    if (storageUsedKB < STORAGE_WARN_KB) return "";
+    const pct  = Math.round(storageUsedKB / STORAGE_LIMIT_KB * 100);
+    const crit = storageUsedKB >= STORAGE_LIMIT_KB * 0.95;
+    // Profiles are in GM storage (separate quota); this warning is for the game's localStorage only
+    return `<div class="sg-storage-warn${crit?" crit":""}">
+      ⚠ Game localStorage ${pct}% full (${storageUsedKB} / ${STORAGE_LIMIT_KB} KB).
+      ${crit ? "Game data may fail to save!" : "Profiles are in extension storage — this is the game's own storage."}
     </div>`;
-    for (const profile of profiles) {
-      const eqMap      = profile.equippedMap;
+  }
+
+  function renderTeam() {
+    const all = Object.values(trackedProfiles).sort((a, b) =>
+      (latestSnap(b)?.ts ?? 0) - (latestSnap(a)?.ts ?? 0));
+
+    if (!all.length) {
+      return `<div class="sg-hint">No players tracked yet.<br>Inspect someone to start tracking.</div>`;
+    }
+
+    const filterKeys  = [...state.filters.keys()];
+    const hasBag      = state.bagItemsRaw.length > 0;
+    const sendPlan    = buildTeamSendPlan();
+    const teamMembers = all.filter(tp => tp.teamMember !== false);
+    const nonMembers  = all.filter(tp => tp.teamMember === false);
+
+    const sendStatusColor = state.teamSendStatus.startsWith("Sent") ? "#4ade80"
+      : (state.teamSendStatus.startsWith("Sending") || state.teamSendStatus.startsWith("Attaching")) ? "#93c5fd" : "#fca5a5";
+
+    let html = storageWarningBanner() + `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;flex-wrap:wrap;">
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
+        <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team Top Picks</span>
+        <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · toggle active to include</span>
+        ${state.teamSendStatus ? `<span style="color:${sendStatusColor};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
+      </div>
+      <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
+        <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send top picks via mail to active teammates">
+          📬 ${state.teamSendBusy ? "Sending…" : "Send Top Picks"}
+        </button>
+        <button class="sg-btn" data-sg-team-manage style="white-space:nowrap;${state.teamManage ? "border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.12);color:#93c5fd;" : ""}" title="${state.teamManage ? "Close member management" : "Add or remove team members"}">
+          ${state.teamManage ? "✓ Done" : `⚙ Members${nonMembers.length ? ` (+${nonMembers.length})` : ""}`}
+        </button>
+      </div>
+    </div>`;
+
+    if (state.teamManage) {
+      html += `<div style="background:#080f1c;border-bottom:1px solid rgba(255,255,255,.08);padding:6px 10px;">
+        <div style="color:#93c5fd;font-size:10px;font-weight:600;margin-bottom:5px;">All Tracked Players</div>
+        ${all.map(tp => {
+          const snap   = latestSnap(tp);
+          const inTeam = tp.teamMember !== false;
+          const d = snap ? new Date(snap.ts) : null;
+          const ts = d ? `${d.getDate().toString().padStart(2,"0")}.${(d.getMonth()+1).toString().padStart(2,"0")}` : "";
+          return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03);">
+            <button class="sg-btn sg-team-member-btn" data-team-member="${esc(tp.playerId)}"
+              style="padding:1px 7px;font-size:9px;min-width:64px;${inTeam
+                ? "border-color:rgba(74,222,128,.4);color:#86efac;"
+                : "border-color:rgba(255,255,255,.12);color:#64748b;"}">
+              ${inTeam ? "✓ In Team" : "+ Add"}
+            </button>
+            <span style="color:${inTeam?"#e8eefc":"#4b5563"};font-size:11px;">${esc(tp.username)}</span>
+            <span style="color:#374151;font-size:9px;">${snap ? esc(snap.levelText) : ""}${ts ? ` · ${ts}` : ""}</span>
+          </div>`;
+        }).join("")}
+      </div>`;
+    }
+
+    if (!teamMembers.length) {
+      html += `<div class="sg-hint">No team members yet.<br>Use ⚙ Members to add tracked players.</div>`;
+      return html;
+    }
+
+    for (const tp of teamMembers) {
+      const snap = latestSnap(tp);
+      if (!snap) continue;
+      const eqMap      = snap.equippedMap;
       const eqWeapon   = Object.values(eqMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
       const icon       = eqWeapon ? (ITEM_ICONS[eqWeapon.type] ?? "⚔️") : "❓";
       const wtype      = eqWeapon ? eqWeapon.type : "unknown";
-      const profFilter = profile.filterKey ?? state.activeFilterKey;
-
-      // Evaluate every bag item against this teammate's gear using their assigned filter
-      const topItems = [];
-      for (const raw of state.bagItemsRaw) {
-        const ev = _buildBagItem(raw, eqMap, profFilter);
-        if (ev.cat === "top") topItems.push(ev);
-      }
-      topItems.sort((a, b) => b.prefScore - a.prefScore);
-
-      const isOpen = teamOpen[profile.playerId] !== false;  // default open
-      const d = new Date(profile.savedAt);
+      const profFilter = tp.filterKey || state.activeFilterKey;
+      const isActive   = tp.active !== false;
+      const isOpen     = teamOpen[tp.playerId] !== false;
+      const d  = new Date(snap.ts);
       const ts = `${d.getDate().toString().padStart(2,"0")}.${(d.getMonth()+1).toString().padStart(2,"0")} ${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
+
+      let topItemsHtml = "";
+      if (isActive && hasBag) {
+        const topItems = [];
+        for (const raw of state.bagItemsRaw) {
+          const ev = _buildBagItem(raw, eqMap, profFilter);
+          if (ev.cat === "top") topItems.push(ev);
+        }
+        topItems.sort((a, b) => b.prefScore - a.prefScore);
+        topItemsHtml = topItems.length
+          ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile({ equippedMap: eqMap, levelText: snap.levelText }), { teamSendProfileId: tp.playerId })).join("")
+          : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is a Top Pick for ${esc(tp.username)} right now.</div>`;
+      } else if (isActive) {
+        topItemsHtml = `<div class="sg-hint">Open Inventory to load bag items.</div>`;
+      } else {
+        topItemsHtml = `<div style="color:#374151;font-size:10px;padding:8px 12px;font-style:italic;">Inactive — toggle on to see top picks.</div>`;
+      }
 
       const filterChips = filterKeys.map(k => {
         const active = k === profFilter;
-        return `<button class="sg-btn sg-team-fchip${active?" sg-team-fchip-on":""}" data-team-fset="${esc(profile.playerId)}" data-fkey="${esc(k)}" style="padding:1px 6px;font-size:9px;${active?"border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.18);color:#93c5fd;":""}">${esc(k)}</button>`;
+        return `<button class="sg-btn sg-team-fchip${active?" sg-team-fchip-on":""}" data-team-fset="${esc(tp.playerId)}" data-fkey="${esc(k)}" style="padding:1px 6px;font-size:9px;${active?"border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.18);color:#93c5fd;":""}">${esc(k)}</button>`;
       }).join("");
 
-      html += `<div class="sg-cat-section" data-team-pid="${esc(profile.playerId)}">
+      html += `<div class="sg-cat-section" data-team-pid="${esc(tp.playerId)}">
         <div class="sg-team-header">
           <span class="sg-cat-title" style="gap:6px;">
+            <button class="sg-team-toggle${isActive?" on":""}" data-team-active="${esc(tp.playerId)}" title="${isActive?"Deactivate":"Activate"}"></button>
             <span style="font-size:13px;">${icon}</span>
-            <b style="font-size:12px;color:#e8eefc;">${esc(profile.username)}</b>
-            <span style="color:#4b5563;font-size:10px;">${esc(profile.levelText)} · ${esc(wtype)}</span>
-            ${topItems.length
-              ? `<span class="sg-badge rec-top" style="margin-left:4px;">${topItems.length} Top</span>`
-              : `<span style="color:#374151;font-size:10px;">(no top picks)</span>`}
+            <b style="font-size:12px;color:${isActive?"#e8eefc":"#4b5563"};">${esc(tp.username)}</b>
+            <span style="color:#4b5563;font-size:10px;">${esc(snap.levelText)} · ${esc(wtype)}</span>
+            <span style="color:#374151;font-size:9px;">${esc(String(tp.snapshots.length))} snap</span>
           </span>
           <span style="display:flex;gap:4px;align-items:center;">
             <span style="color:#1e293b;font-size:9px;">${ts}</span>
-            <button class="sg-icon-btn sg-team-del" data-team-del="${esc(profile.playerId)}" title="Remove">✗</button>
+            <button class="sg-icon-btn sg-team-del" data-team-del="${esc(tp.playerId)}" title="Remove">✗</button>
             <span class="sg-cat-toggle">${isOpen ? "▾" : "▸"}</span>
           </span>
         </div>
@@ -3425,9 +3694,7 @@
           ${filterChips}
         </div>
         <div class="sg-cat-body${isOpen ? "" : " collapsed"}">
-          ${topItems.length
-            ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile(profile), { teamSendProfileId: profile.playerId })).join("")
-            : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is a Top Pick for ${esc(profile.username)} right now.</div>`}
+          ${topItemsHtml}
         </div>
       </div>`;
     }
@@ -3435,11 +3702,192 @@
   }
 
   /**************************************************************************
-   * INSPECT MODAL — Save Button
+   * RENDER — History Tab
    **************************************************************************/
 
-  function injectInspectSaveBtn(modal) {
-    // Walk React fiber to find the playerId prop
+  const STAT_LABELS = {
+    atkPhys: "Atk (Phys)", atkSpeed: "Atk Speed", critChance: "Crit %",
+    critDmg: "Crit Dmg %", hitChance: "Hit %", maxHpStat: "Max HP",
+    def: "Defense", allStats: "All Stats", maxManaStat: "Max Mana", manaRegen: "Mana Regen",
+  };
+
+  function renderHistory() {
+    const tracked = Object.values(trackedProfiles)
+      .filter(tp => tp.snapshots.length >= 1)
+      .sort((a, b) => (latestSnap(b)?.ts ?? 0) - (latestSnap(a)?.ts ?? 0));
+
+    if (!tracked.length) {
+      return `<div class="sg-hint">No tracked players yet.<br>Inspect someone to start.</div>`;
+    }
+
+    const selPid = state.historySelectedPlayer;
+    const selTp  = selPid ? trackedProfiles[selPid] : null;
+
+    const playerList = tracked.map(tp => {
+      const n = tp.snapshots.length;
+      return `<button class="sg-hist-player-btn${selPid === tp.playerId ? " active" : ""}" data-hist-pid="${esc(tp.playerId)}">
+        ${esc(tp.username)}
+        <span style="font-size:9px;color:#374151;float:right;">${n} snap${n>1?"s":""}</span>
+      </button>`;
+    }).join("");
+
+    const fmtDate = d => { const dt = new Date(d); return `${dt.getDate().toString().padStart(2,"0")}.${(dt.getMonth()+1).toString().padStart(2,"0")} ${dt.getHours().toString().padStart(2,"0")}:${dt.getMinutes().toString().padStart(2,"0")}`; };
+    const fmtN    = v => v == null ? "—" : (Number.isInteger(v) ? String(v) : v.toFixed(1));
+    const fmtRnd  = v => v == null ? "—" : Math.round(v).toLocaleString();
+
+    function metricDiffRow(label, pv, cv, fmt) {
+      if (pv == null && cv == null) return "";
+      const diff    = (pv != null && cv != null) ? cv - pv : null;
+      const pctStr  = (diff != null && pv && pv !== 0) ? ` ${diff >= 0 ? "+" : ""}${((diff / pv) * 100).toFixed(1)}%` : "";
+      const cls     = diff == null || Math.abs(diff) < 0.05 ? "sg-hist-same" : diff > 0 ? "sg-hist-up" : "sg-hist-dn";
+      const sign    = diff != null && diff > 0 ? "+" : "";
+      const diffStr = diff != null && Math.abs(diff) >= 0.05 ? ` (${sign}${fmt(Math.abs(diff))}${pctStr})` : "";
+      return `<div class="sg-hist-stat-row">
+        <span class="sg-hist-stat-lbl">${label}</span>
+        <span>
+          <span style="color:#64748b;">${pv != null ? fmt(pv) : "—"}</span>
+          <span style="color:#374151;margin:0 3px;">→</span>
+          <span class="${cls}">${cv != null ? fmt(cv) : "—"}${diffStr}</span>
+        </span>
+      </div>`;
+    }
+
+    function currentGearSection(snap) {
+      const slots = GEAR_SLOT_ORDER.filter(s => snap.equippedMap[s]);
+      if (!slots.length) return "";
+      const rows = slots.map(slot => {
+        const item    = snap.equippedMap[slot];
+        const rarity  = (item.rarity ?? "COMMON").toUpperCase();
+        const color   = RARITY_COLOR[rarity] ?? "#7A6E62";
+        const name    = item.name ?? item.type ?? "?";
+        const tier    = item.tier ? ` T${item.tier}` : "";
+        const forge   = item.forgeTier ? ` ${FORGE_TIER_SYMBOL[item.forgeTier] ?? ""}` : "";
+        return `<div class="sg-hist-stat-row">
+          <span class="sg-hist-stat-lbl" style="color:#64748b;">${slot}</span>
+          <span style="color:${color};font-size:10px;">${esc(name)}${esc(tier)}${esc(forge)}</span>
+        </div>`;
+      }).join("");
+      return `<div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
+        <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Current Gear</div>
+        ${rows}
+      </div>`;
+    }
+
+    function currentStatsSection(stats) {
+      const dps  = calcDPS(stats);
+      const ehp  = calcSurvivability(stats.maxHpStat, stats.def ?? 0);
+      const mana = stats.maxManaStat ?? null;
+      const rows = [
+        dps  != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">DPS</span><span style="color:#e8eefc;">${dps.toFixed(1)}</span></div>` : "",
+        ehp  != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">EHP</span><span style="color:#e8eefc;">${Math.round(ehp).toLocaleString()}</span></div>` : "",
+        mana != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">Mana</span><span style="color:#e8eefc;">${Math.round(mana).toLocaleString()}</span></div>` : "",
+        ...Object.entries(STAT_LABELS).map(([key, label]) => {
+          const v = stats[key] ?? null;
+          return v != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">${label}</span><span style="color:#94a3b8;">${fmtN(v)}</span></div>` : "";
+        }),
+      ].filter(Boolean).join("");
+      return rows ? `<div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
+        <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Current Stats</div>
+        ${rows}
+      </div>` : "";
+    }
+
+    let diffHtml = "";
+    if (selTp && selTp.snapshots.length >= 2) {
+      const prev = selTp.snapshots[selTp.snapshots.length - 2];
+      const curr = selTp.snapshots[selTp.snapshots.length - 1];
+
+      const prevStats = (prev.charStats && Object.values(prev.charStats).some(v => v != null))
+        ? prev.charStats : deriveCharStatsFromProfile({ equippedMap: prev.equippedMap, levelText: prev.levelText });
+      const currStats = (curr.charStats && Object.values(curr.charStats).some(v => v != null))
+        ? curr.charStats : deriveCharStatsFromProfile({ equippedMap: curr.equippedMap, levelText: curr.levelText });
+
+      const metricRows = [
+        metricDiffRow("DPS",  calcDPS(prevStats),                                         calcDPS(currStats),                                         v => v.toFixed(1)),
+        metricDiffRow("EHP",  calcSurvivability(prevStats.maxHpStat, prevStats.def ?? 0), calcSurvivability(currStats.maxHpStat, currStats.def ?? 0), v => Math.round(v).toLocaleString()),
+        metricDiffRow("Mana", prevStats.maxManaStat ?? null,                               currStats.maxManaStat ?? null,                               fmtRnd),
+      ].filter(Boolean).join("");
+
+      let statRows = "";
+      for (const [key, label] of Object.entries(STAT_LABELS)) {
+        const pv = prevStats[key] ?? null;
+        const cv = currStats[key] ?? null;
+        if (pv == null && cv == null) continue;
+        const diff = (cv ?? 0) - (pv ?? 0);
+        const cls  = diff > 0.05 ? "sg-hist-up" : diff < -0.05 ? "sg-hist-dn" : "sg-hist-same";
+        const sign = diff > 0.05 ? "+" : "";
+        statRows += `<div class="sg-hist-stat-row">
+          <span class="sg-hist-stat-lbl">${label}</span>
+          <span>
+            <span style="color:#64748b;">${fmtN(pv)}</span>
+            <span style="color:#374151;margin:0 3px;">→</span>
+            <span class="${cls}">${fmtN(cv)} ${diff !== 0 ? `(${sign}${fmtN(diff)})` : ""}</span>
+          </span>
+        </div>`;
+      }
+
+      const allSlots = new Set([...Object.keys(prev.equippedMap), ...Object.keys(curr.equippedMap)]);
+      let gearRows = ""; let anyGearChange = false;
+      for (const slot of allSlots) {
+        const pi = prev.equippedMap[slot];
+        const ci = curr.equippedMap[slot];
+        const pName = pi ? (pi.name ?? pi.type ?? "?") : "—";
+        const cName = ci ? (ci.name ?? ci.type ?? "?") : "—";
+        if (pName === cName) continue;
+        anyGearChange = true;
+        gearRows += `<div class="sg-hist-slot">
+          <span class="sg-hist-slot-name">${esc(slot)}</span>
+          <span style="color:#f87171;">${esc(pName)}</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#4ade80;">${esc(cName)}</span>
+        </div>`;
+      }
+
+      diffHtml = `
+        <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
+          <b style="font-size:12px;color:#e8eefc;">${esc(selTp.username)}</b>
+          <span style="font-size:9px;color:#4b5563;margin-left:6px;">${fmtDate(prev.ts)} → ${fmtDate(curr.ts)}</span>
+        </div>
+        ${metricRows ? `<div style="padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
+          <div style="font-size:10px;color:#f59e0b;margin-bottom:4px;">Combat Metrics</div>
+          ${metricRows}
+        </div>` : ""}
+        <div style="padding:6px 10px;">
+          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Stat Changes</div>
+          ${statRows || `<div style="color:#374151;font-size:10px;">No stat changes.</div>`}
+        </div>
+        <div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
+          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Gear Changes</div>
+          ${anyGearChange ? gearRows : `<div style="color:#374151;font-size:10px;">No gear changes.</div>`}
+        </div>
+        ${currentGearSection(curr)}`;
+    } else if (selTp && selTp.snapshots.length >= 1) {
+      const snap  = selTp.snapshots[selTp.snapshots.length - 1];
+      const stats = (snap.charStats && Object.values(snap.charStats).some(v => v != null))
+        ? snap.charStats : deriveCharStatsFromProfile({ equippedMap: snap.equippedMap, levelText: snap.levelText });
+      diffHtml = `
+        <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
+          <b style="font-size:12px;color:#e8eefc;">${esc(selTp.username)}</b>
+          <span style="font-size:9px;color:#4b5563;margin-left:6px;">${fmtDate(snap.ts)}</span>
+          <span style="font-size:9px;color:#374151;margin-left:4px;">(1 snapshot — inspect again to track changes)</span>
+        </div>
+        ${currentStatsSection(stats)}
+        ${currentGearSection(snap)}`;
+    } else {
+      diffHtml = `<div class="sg-hint">Select a player on the left<br>to view their history.</div>`;
+    }
+
+    return storageWarningBanner() + `<div style="display:flex;height:100%;min-height:200px;">
+      <div style="width:130px;flex-shrink:0;border-right:1px solid rgba(255,255,255,.05);overflow-y:auto;">${playerList}</div>
+      <div style="flex:1;overflow-y:auto;">${diffHtml}</div>
+    </div>`;
+  }
+
+  /**************************************************************************
+   * INSPECT MODAL — Auto-track badge
+   **************************************************************************/
+
+  function injectInspectBadge(modal) {
     const fkey = Object.keys(modal).find(k => k.startsWith("__reactFiber"));
     let playerId = null;
     if (fkey) {
@@ -3451,65 +3899,31 @@
     }
     if (!playerId) return;
 
-    function tryInject() {
-      if (modal.querySelector(".sg-inspect-save")) return;  // already injected
+    function tryAutoSave() {
+      if (modal.querySelector(".sg-inspect-badge")) return;
       const usernameEl = modal.querySelector(".inspect-username");
-      if (!usernameEl) return;  // async content not yet loaded
+      if (!usernameEl) return;
 
       const username  = usernameEl.textContent.trim() || "Unknown";
       const levelText = modal.querySelector(".inspect-level")?.textContent?.trim() ?? "";
 
-      const alreadySaved = !!teamProfiles[playerId];
+      pendingModalInfo[playerId] = { username, levelText };
 
-      const wrap = document.createElement("div");
-      wrap.className = "sg-inspect-save";
-      wrap.style.cssText = "display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;";
+      const data = pendingInspect[playerId];
+      if (data) recordSnapshot(playerId, username, levelText, data);
 
-      const saveBtn = document.createElement("button");
-      saveBtn.className = "sg-btn";
-      saveBtn.textContent = alreadySaved ? "🔄 Update Profile" : "💾 Save Profile";
-
-      const removeBtn = document.createElement("button");
-      removeBtn.className = "sg-btn";
-      removeBtn.style.cssText = "color:#f87171;border-color:rgba(248,113,113,.3);display:" + (alreadySaved ? "inline-block" : "none") + ";";
-      removeBtn.textContent = "✗ Remove";
-
-      saveBtn.addEventListener("click", () => {
-        const data = pendingInspect[playerId];
-        if (!data) { saveBtn.textContent = "⚠ No data yet…"; setTimeout(() => { saveBtn.textContent = "🔄 Update Profile"; }, 2000); return; }
-        teamProfiles[playerId] = {
-          playerId, username, levelText,
-          equippedMap: buildEquippedMap(data.equipped),
-          charStats:   parseInspectCharStats(data),
-          filterKey: teamProfiles[playerId]?.filterKey ?? state.activeFilterKey,
-          savedAt: Date.now(),
-        };
-        saveTeamProfiles();
-        saveBtn.textContent = "✓ Saved!";
-        saveBtn.style.color = "#4ade80";
-        removeBtn.style.display = "inline-block";
-        setTimeout(() => { saveBtn.textContent = "🔄 Update Profile"; saveBtn.style.color = ""; }, 2000);
-      });
-
-      removeBtn.addEventListener("click", () => {
-        delete teamProfiles[playerId];
-        saveTeamProfiles();
-        saveBtn.textContent = "💾 Save Profile";
-        removeBtn.style.display = "none";
-      });
-
-      wrap.appendChild(saveBtn);
-      wrap.appendChild(removeBtn);
+      const badge = document.createElement("div");
+      badge.className = "sg-inspect-badge";
+      badge.textContent = "📋 Tracked";
       modal.style.position = "relative";
-      modal.appendChild(wrap);
+      modal.appendChild(badge);
     }
 
-    tryInject();
-    if (!modal.querySelector(".sg-inspect-save")) {
-      // Inspect modal loads async — watch for username to appear
+    tryAutoSave();
+    if (!modal.querySelector(".sg-inspect-badge")) {
       const obs = new MutationObserver(() => {
-        tryInject();
-        if (modal.querySelector(".sg-inspect-save")) obs.disconnect();
+        tryAutoSave();
+        if (modal.querySelector(".sg-inspect-badge")) obs.disconnect();
       });
       obs.observe(modal, { childList: true, subtree: true });
     }
@@ -3520,9 +3934,9 @@
       for (const m of muts) {
         for (const n of m.addedNodes) {
           if (n.nodeType !== 1) continue;
-          if (n.classList?.contains("inspect-modal")) { injectInspectSaveBtn(n); continue; }
+          if (n.classList?.contains("inspect-modal")) { injectInspectBadge(n); continue; }
           const inner = n.querySelector?.(".inspect-modal");
-          if (inner) injectInspectSaveBtn(inner);
+          if (inner) injectInspectBadge(inner);
         }
       }
     });
@@ -3544,6 +3958,7 @@
     else if (state.activeTab==="filters") body.innerHTML = renderFilters();
     else if (state.activeTab==="market")  body.innerHTML = renderMarket();
     else if (state.activeTab==="team")    body.innerHTML = renderTeam();
+    else if (state.activeTab==="history") body.innerHTML = renderHistory();
     else                                  body.innerHTML = renderStats();
 
     if (state.activeTab==="filters") {
@@ -3751,10 +4166,10 @@
     if (state.activeTab==="team") {
       body.querySelectorAll(".sg-team-header").forEach(header => {
         header.addEventListener("click", e => {
-          if (e.target.closest(".sg-team-del")) return;
-          const pid     = header.closest("[data-team-pid]")?.dataset.teamPid;
-          const body_   = header.nextElementSibling;
-          const toggle  = header.querySelector(".sg-cat-toggle");
+          if (e.target.closest(".sg-team-del") || e.target.closest(".sg-team-toggle") || e.target.closest(".sg-team-fchip")) return;
+          const pid    = header.closest("[data-team-pid]")?.dataset.teamPid;
+          const body_  = header.nextElementSibling;
+          const toggle = header.querySelector(".sg-cat-toggle");
           const nowOpen = body_.classList.toggle("collapsed") === false;
           if (toggle) toggle.textContent = nowOpen ? "▾" : "▸";
           if (pid) teamOpen[pid] = nowOpen;
@@ -3765,12 +4180,23 @@
           e.stopPropagation();
           const pid = btn.dataset.teamDel;
           if (pid) {
-            delete teamProfiles[pid];
+            delete trackedProfiles[pid];
             if (state.marketCtxPlayerId === pid) {
               state.marketCtxPlayerId = null;
               rebuildMarketItems();
             }
-            saveTeamProfiles();
+            saveTrackedProfiles();
+            render();
+          }
+        });
+      });
+      body.querySelectorAll(".sg-team-toggle").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.stopPropagation();
+          const pid = btn.dataset.teamActive;
+          if (pid && trackedProfiles[pid]) {
+            trackedProfiles[pid].active = !trackedProfiles[pid].active;
+            saveTrackedProfiles();
             render();
           }
         });
@@ -3780,9 +4206,29 @@
           e.stopPropagation();
           const pid  = btn.dataset.teamFset;
           const fkey = btn.dataset.fkey;
-          if (pid && fkey && teamProfiles[pid]) {
-            teamProfiles[pid].filterKey = fkey;
-            saveTeamProfiles();
+          if (pid && fkey && trackedProfiles[pid]) {
+            trackedProfiles[pid].filterKey = fkey;
+            saveTrackedProfiles();
+            render();
+          }
+        });
+      });
+
+      const manageBtn = body.querySelector("[data-sg-team-manage]");
+      if (manageBtn) {
+        manageBtn.addEventListener("click", e => {
+          e.preventDefault();
+          state.teamManage = !state.teamManage;
+          render();
+        });
+      }
+      body.querySelectorAll(".sg-team-member-btn").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.stopPropagation();
+          const pid = btn.dataset.teamMember;
+          if (pid && trackedProfiles[pid]) {
+            trackedProfiles[pid].teamMember = trackedProfiles[pid].teamMember === false ? true : false;
+            saveTrackedProfiles();
             render();
           }
         });
@@ -3810,6 +4256,15 @@
             state.teamSendStatus = err?.message || String(err);
             render();
           });
+        });
+      });
+    }
+
+    if (state.activeTab==="history") {
+      body.querySelectorAll(".sg-hist-player-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.historySelectedPlayer = btn.dataset.histPid ?? null;
+          render();
         });
       });
     }
@@ -3845,7 +4300,7 @@
     _charViewObs.observe(document.body, { childList: true, subtree: true });
   }
 
-  function boot() { loadStats(); installUI(); setupTooltipObserver(); setupInspectObserver(); setupCharViewObserver(); tick(); _tickInterval = setInterval(tick, 1000); }
+  function boot() { loadTrackedProfiles(); loadStats(); installUI(); setupTooltipObserver(); setupInspectObserver(); setupCharViewObserver(); tick(); _tickInterval = setInterval(tick, 1000); }
     return {
       ...definition,
       init(app) { _moduleApp = app; boot(); },
@@ -3873,7 +4328,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.24.0',
+    version:     '8.30.0',
     category:    'fighter',
   });
 })();
