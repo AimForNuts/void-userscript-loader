@@ -86,6 +86,10 @@
             lastZoneStatsKey: "",
             zoneStatsLastTickAt: 0,
 
+            currentMonsterName: "",
+            huntAll: false,
+            setZoneReady: false,
+
             team: {
                 members: new Map(),
                 lastSnapshotAt: 0,
@@ -261,10 +265,9 @@
             });
         }
 
-        const DPS_ZONE_STATS_STORAGE_KEY = "voididle.dpsCoach.zoneStats.v4.session";
-        // v4 intentionally does not import older zone history. Older builds stored
-        // lifetime totals, which made the Zones tab look wildly different from
-        // the Summary tab after long play sessions.
+        const DPS_ZONE_STATS_STORAGE_KEY = "voididle.dpsCoach.zoneStats.v5.session";
+        // v5 intentionally does not import older zone history. v5 adds per-monster
+        // and hunt-all tracking; old keys lack those segments and are incompatible.
         const MAX_ZONE_STATS = 80;
 
         const ZONE_ENEMY_ID_MAP = Object.freeze({
@@ -333,6 +336,13 @@
             const base = getZoneStorageKey(zoneName);
             const cleanTier = String(tier || "").replace(/^T/i, "").trim();
             return cleanTier ? `${base}|T${cleanTier}` : base;
+        }
+
+        function formatSlugToDisplay(slug) {
+            return String(slug || "")
+                .split("-")
+                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(" ") || "";
         }
 
         function parseZoneTier(value) {
