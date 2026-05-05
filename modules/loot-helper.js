@@ -2043,7 +2043,7 @@
         <span class="sg-filter-name">${esc(key)}</span>
         <span class="sg-filter-statcount">${fc.stats.size + fc.preferredStats.size} stats${fc.preferredStats.size ? ` · ★${fc.preferredStats.size}` : ""}</span>
         <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter (items won't be scored by this filter)":"Enable filter"}">${fc.enabled?"●":"○"}</button>
-        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts score: >2%→+2, >5%→+3 (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts score: >2%→+2, >5%→+3 (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
+        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts score: >2%→+2, >5%→+3, <-2%→-2, <-5%→-3 (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts score: >2%→+2, >5%→+3, <-2%→-2, <-5%→-3 (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
         <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: choose which stats are Liked (♥ ±2) or Preferred (★ ±4)">✏</button>
         ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}" title="Delete this filter">✗</button>`:""}
       </div>`;
@@ -2398,7 +2398,7 @@
     return `<span class="sg-badge sg-badge-multi">${label} Roll <span style="color:${qColor};font-weight:700;">${qPct}%</span>${note}</span>`;
   }
 
-  // Returns score bump based on DPS% change: >5%→+3, >2%→+2, <-2%→-1, <-5%→-2
+  // Returns score bump based on DPS% change: >5%→+3, >2%→+2, <-2%→-2, <-5%→-3
   function _dpsScoreBump(item, ctx) {
     const c      = ctx ?? selfCtx();
     const delta  = calcItemDpsDelta(item, c);
@@ -2407,12 +2407,12 @@
     const pct = (delta / curDPS) * 100;
     if (pct >  5) return  3;
     if (pct >  2) return  2;
-    if (pct < -5) return -2;
-    if (pct < -2) return -1;
+    if (pct < -5) return -3;
+    if (pct < -2) return -2;
     return 0;
   }
 
-  // Returns score bump based on EHP% change: >5%→+3, >2%→+2, <-2%→-1, <-5%→-2
+  // Returns score bump based on EHP% change: >5%→+3, >2%→+2, <-2%→-2, <-5%→-3
   function _ehpScoreBump(item, ctx) {
     const c       = ctx ?? selfCtx();
     const curSurv = calcSurvivability(c.maxHpStat, c.def ?? 0);
@@ -2422,8 +2422,8 @@
     const pct = (delta / curSurv) * 100;
     if (pct >  5) return  3;
     if (pct >  2) return  2;
-    if (pct < -5) return -2;
-    if (pct < -2) return -1;
+    if (pct < -5) return -3;
+    if (pct < -2) return -2;
     return 0;
   }
 
@@ -3682,9 +3682,9 @@
       const prev = selTp.snapshots[selTp.snapshots.length - 2];
       const curr = selTp.snapshots[selTp.snapshots.length - 1];
 
-      const prevStats = (prev.charStats && Object.keys(prev.charStats).length)
+      const prevStats = (prev.charStats && Object.values(prev.charStats).some(v => v != null))
         ? prev.charStats : deriveCharStatsFromProfile({ equippedMap: prev.equippedMap, levelText: prev.levelText });
-      const currStats = (curr.charStats && Object.keys(curr.charStats).length)
+      const currStats = (curr.charStats && Object.values(curr.charStats).some(v => v != null))
         ? curr.charStats : deriveCharStatsFromProfile({ equippedMap: curr.equippedMap, levelText: curr.levelText });
 
       const metricRows = [
@@ -3748,7 +3748,7 @@
         ${currentGearSection(curr)}`;
     } else if (selTp && selTp.snapshots.length >= 1) {
       const snap  = selTp.snapshots[selTp.snapshots.length - 1];
-      const stats = (snap.charStats && Object.keys(snap.charStats).length)
+      const stats = (snap.charStats && Object.values(snap.charStats).some(v => v != null))
         ? snap.charStats : deriveCharStatsFromProfile({ equippedMap: snap.equippedMap, levelText: snap.levelText });
       diffHtml = `
         <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
@@ -4213,7 +4213,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.27.1',
+    version:     '8.27.2',
     category:    'fighter',
   });
 })();
