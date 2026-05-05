@@ -3,16 +3,16 @@
 
   function createLootHelperModule(definition) {
 
+  let _tickInterval = null;
+  let _tooltipObs   = null;
+  let _inspectObs   = null;
+  let _charViewObs  = null;
+  let _cssStyleEl   = null;
+  let _hlStyleEl    = null;
+
   /**************************************************************************
    * CONSTANTS
    **************************************************************************/
-
-  let _tickInterval   = null;
-  let _tooltipObs     = null;
-  let _inspectObs     = null;
-  let _charViewObs    = null;
-  let _cssStyleEl     = null;
-  let _hlStyleEl      = null;
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -275,12 +275,61 @@
    * TEAM PROFILES
    **************************************************************************/
 
-  const TEAM_KEY = "sgTeamProfiles";
-  const teamProfiles = (() => {
-    try { return JSON.parse(localStorage.getItem(TEAM_KEY) || "{}"); } catch { return {}; }
+  const TRACKED_KEY = "sgTrackedProfiles";
+  const trackedProfiles = (() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(TRACKED_KEY) || "{}");
+      // Migrate old sgTeamProfiles format
+      const old = (() => { try { return JSON.parse(localStorage.getItem("sgTeamProfiles") || "{}"); } catch { return {}; } })();
+      for (const [pid, p] of Object.entries(old)) {
+        if (!stored[pid] && p.equippedMap) {
+          stored[pid] = {
+            playerId: pid, username: p.username,
+            active: true, filterKey: p.filterKey ?? "",
+            snapshots: [{ ts: p.savedAt ?? Date.now(), levelText: p.levelText ?? "", equippedMap: p.equippedMap, charStats: p.charStats ?? {} }],
+          };
+        }
+      }
+      return stored;
+    } catch { return {}; }
   })();
-  function saveTeamProfiles() {
-    try { localStorage.setItem(TEAM_KEY, JSON.stringify(teamProfiles)); } catch {}
+
+  const STORAGE_WARN_KB  = 4000;
+  const STORAGE_LIMIT_KB = 5120;
+  const MAX_SNAPSHOTS    = 50;
+
+  function estimateStorageKB() {
+    let total = 0;
+    try { for (const k of Object.keys(localStorage)) total += (localStorage.getItem(k)?.length ?? 0) * 2; } catch {}
+    return Math.round(total / 1024);
+  }
+  let storageUsedKB = estimateStorageKB();
+
+  function saveTrackedProfiles() {
+    try {
+      localStorage.setItem(TRACKED_KEY, JSON.stringify(trackedProfiles));
+      storageUsedKB = estimateStorageKB();
+    } catch { storageUsedKB = estimateStorageKB(); }
+  }
+
+  // Pending modal info keyed by playerId (for auto-save when DOM loads before API response)
+  const pendingModalInfo = {};
+
+  function latestSnap(tp) {
+    return tp?.snapshots?.[tp.snapshots.length - 1] ?? null;
+  }
+
+  function recordSnapshot(playerId, username, levelText, data) {
+    const equippedMap = buildEquippedMap(data.equipped);
+    const charStats   = parseInspectCharStats(data);
+    if (!trackedProfiles[playerId]) {
+      trackedProfiles[playerId] = { playerId, username, active: true, filterKey: "", snapshots: [] };
+    }
+    const tp = trackedProfiles[playerId];
+    tp.username = username;
+    tp.snapshots.push({ ts: Date.now(), levelText, equippedMap, charStats });
+    if (tp.snapshots.length > MAX_SNAPSHOTS) tp.snapshots.shift();
+    saveTrackedProfiles();
   }
 
   // Pending inspect data keyed by playerId (captured from fetch intercept)
@@ -315,6 +364,8 @@
         res.clone().json().then(data => {
           if (Array.isArray(data.equipped)) {
             pendingInspect[m[1]] = data;
+            const info = pendingModalInfo[m[1]];
+            if (info) recordSnapshot(m[1], info.username, info.levelText, data);
           }
         }).catch(() => {});
       }
@@ -480,26 +531,28 @@
 
   function marketCtx() {
     if (!state.marketCtxPlayerId) return selfCtx();
-    const profile = teamProfiles[state.marketCtxPlayerId];
-    if (!profile) return selfCtx();
-    return deriveCharStatsFromProfile(profile);
+    const tp   = trackedProfiles[state.marketCtxPlayerId];
+    const snap = latestSnap(tp);
+    if (!snap) return selfCtx();
+    return deriveCharStatsFromProfile({ equippedMap: snap.equippedMap, levelText: snap.levelText });
   }
 
   function marketCtxFilterKey() {
     if (!state.marketCtxPlayerId) return state.activeFilterKey;
-    const profile = teamProfiles[state.marketCtxPlayerId];
-    return profile?.filterKey ?? state.activeFilterKey;
+    const tp = trackedProfiles[state.marketCtxPlayerId];
+    return tp?.filterKey ?? state.activeFilterKey;
   }
 
   function rebuildMarketItems() {
     if (!state.marketRawData.length) { state.marketItems = []; return; }
 
     let equippedMap, filterKey, ctxLevel;
-    if (state.marketCtxPlayerId && teamProfiles[state.marketCtxPlayerId]) {
-      const profile = teamProfiles[state.marketCtxPlayerId];
-      equippedMap = profile.equippedMap;
-      filterKey   = profile.filterKey ?? state.activeFilterKey;
-      ctxLevel    = parseInt((profile.levelText ?? "").replace(/\D/g, ""), 10) || 0;
+    if (state.marketCtxPlayerId && trackedProfiles[state.marketCtxPlayerId]) {
+      const tp   = trackedProfiles[state.marketCtxPlayerId];
+      const snap = latestSnap(tp);
+      equippedMap = snap?.equippedMap ?? {};
+      filterKey   = tp.filterKey ?? state.activeFilterKey;
+      ctxLevel    = parseInt((snap?.levelText ?? "").replace(/\D/g, ""), 10) || 0;
     } else {
       state.marketCtxPlayerId = null;
       equippedMap = state.equipped;
@@ -564,6 +617,7 @@
     marketCtxMwt: 1,
     teamSendStatus: "", teamSendBusy: false,
     salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(),
+    historySelectedPlayer: null,
   };
 
   /**************************************************************************
@@ -1629,13 +1683,12 @@
     .c-green{color:#86efac;} .c-blue{color:#93c5fd;} .c-gold{color:#fde68a;}
     .c-orange{color:#fb923c;} .c-red{color:#fca5a5;} .c-purple{color:#c084fc;} .c-muted{color:#64748b;}
 
-    .sg-inspect-save {
+    .sg-inspect-badge {
       position:absolute; top:10px; right:40px;
-      background:#172554; color:#93c5fd;
-      border:1px solid rgba(59,130,246,.4); border-radius:6px;
-      padding:4px 10px; font:11px Inter,sans-serif; cursor:pointer; z-index:10;
+      background:#172554; color:#4ade80;
+      border:1px solid rgba(74,222,128,.3); border-radius:6px;
+      padding:4px 10px; font:11px Inter,sans-serif; z-index:10; pointer-events:none;
     }
-    .sg-inspect-save:hover { background:#1e3a8a; }
     .sg-team-header {
       display:flex; align-items:center; justify-content:space-between;
       padding:8px 10px; cursor:pointer; user-select:none;
@@ -1643,6 +1696,37 @@
     }
     .sg-team-header:hover { background:rgba(255,255,255,.02); }
     .sg-team-body.collapsed { display:none; }
+    .sg-team-toggle {
+      width:30px; height:16px; border-radius:8px; border:none; cursor:pointer;
+      background:#1e293b; position:relative; flex-shrink:0; transition:background .2s;
+    }
+    .sg-team-toggle.on { background:rgba(59,130,246,.6); }
+    .sg-team-toggle::after {
+      content:""; position:absolute; top:2px; left:2px;
+      width:12px; height:12px; border-radius:50%; background:#94a3b8; transition:left .15s;
+    }
+    .sg-team-toggle.on::after { left:16px; background:#e0f2fe; }
+    .sg-storage-warn {
+      margin:6px 8px 2px; padding:5px 8px; border-radius:5px; font-size:10px;
+      background:rgba(251,191,36,.08); border:1px solid rgba(251,191,36,.25); color:#fbbf24;
+    }
+    .sg-storage-warn.crit {
+      background:rgba(248,113,113,.1); border-color:rgba(248,113,113,.3); color:#f87171;
+    }
+    .sg-hist-player-btn {
+      display:block; width:100%; text-align:left; padding:6px 10px;
+      background:none; border:none; border-bottom:1px solid rgba(255,255,255,.04);
+      color:#94a3b8; font:11px Inter,sans-serif; cursor:pointer;
+    }
+    .sg-hist-player-btn:hover { background:rgba(255,255,255,.03); color:#e2e8f0; }
+    .sg-hist-player-btn.active { color:#93c5fd; background:rgba(59,130,246,.1); }
+    .sg-hist-slot { display:flex; gap:6px; align-items:baseline; padding:2px 0; font-size:10px; }
+    .sg-hist-slot-name { color:#4b5563; min-width:62px; }
+    .sg-hist-stat-row { display:flex; justify-content:space-between; padding:2px 0; font-size:10px; }
+    .sg-hist-stat-lbl { color:#4b5563; }
+    .sg-hist-up { color:#4ade80; }
+    .sg-hist-dn { color:#f87171; }
+    .sg-hist-same { color:#64748b; }
 
     .sg-footer {
       text-align:center; font-size:9px; color:#1e293b;
@@ -1692,6 +1776,7 @@
         <button class="sg-tab"        data-tab="filters">⚙️ Filters</button>
         <button class="sg-tab"        data-tab="market">🏪 Market</button>
         <button class="sg-tab"        data-tab="team">👥 Team</button>
+        <button class="sg-tab"        data-tab="history">📜 History</button>
       </div>
       <div class="sg-body" id="sgBody"><div class="sg-hint">Waiting for data…</div></div>
     `;
@@ -1703,7 +1788,7 @@
         container.querySelectorAll(".sg-tab").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
         state.activeTab = btn.dataset.tab;
-        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team";
+        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team" || state.activeTab === "history";
         if (_moduleApp) {
           panelEl.style.width = isWide ? "480px" : "310px";
         } else {
@@ -2153,13 +2238,16 @@
    **************************************************************************/
 
   function _marketCtxSelectorHtml() {
-    const profiles = Object.values(teamProfiles).sort((a, b) => b.savedAt - a.savedAt);
-    if (!profiles.length) return "";
-    const opts = profiles.map(p => {
-      const eqWeapon = Object.values(p.equippedMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
+    const tracked = Object.values(trackedProfiles)
+      .filter(tp => tp.snapshots.length > 0)
+      .sort((a, b) => (latestSnap(b)?.ts ?? 0) - (latestSnap(a)?.ts ?? 0));
+    if (!tracked.length) return "";
+    const opts = tracked.map(tp => {
+      const snap     = latestSnap(tp);
+      const eqWeapon = snap ? Object.values(snap.equippedMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon") : null;
       const icon     = eqWeapon ? (ITEM_ICONS[eqWeapon.type] ?? "⚔️") : "👤";
-      const sel      = state.marketCtxPlayerId === p.playerId ? " selected" : "";
-      return `<option value="${esc(p.playerId)}"${sel}>${icon} ${esc(p.username)}</option>`;
+      const sel      = state.marketCtxPlayerId === tp.playerId ? " selected" : "";
+      return `<option value="${esc(tp.playerId)}"${sel}>${icon} ${esc(tp.username)}</option>`;
     }).join("");
     return `<select id="sgMktCtx" style="font-size:10px;background:#0f172a;color:#e8eefc;border:1px solid #1e293b;border-radius:4px;padding:1px 4px;cursor:pointer;">
       <option value=""${!state.marketCtxPlayerId ? " selected" : ""}>👤 Me</option>
@@ -2174,7 +2262,7 @@
     if (!state.marketItems.length) {
       return `<div class="sg-hint">No gear listings visible.<br>Switch to Weapons / Armor / Jewelry.</div>`;
     }
-    const ctxProfile = state.marketCtxPlayerId ? teamProfiles[state.marketCtxPlayerId] : null;
+    const ctxProfile = state.marketCtxPlayerId ? trackedProfiles[state.marketCtxPlayerId] : null;
     if (!ctxProfile && !Object.keys(state.equipped).length) {
       return `<div class="sg-hint" style="padding:6px 10px;">No equipped gear cached — open inventory first for diffs.</div>`;
     }
@@ -2792,9 +2880,13 @@
 
   function buildTeamSendPlan() {
     const candidates = [];
-    for (const profile of Object.values(teamProfiles)) {
-      const eqMap      = profile.equippedMap || {};
-      const profFilter = profile.filterKey ?? state.activeFilterKey;
+    for (const tp of Object.values(trackedProfiles)) {
+      if (!tp.active) continue;
+      const snap       = latestSnap(tp);
+      const eqMap      = snap?.equippedMap || {};
+      const profFilter = tp.filterKey ?? state.activeFilterKey;
+      // Expose a profile-shaped object for mail functions that expect .username/.playerId
+      const profile = { playerId: tp.playerId, username: tp.username, equippedMap: eqMap, filterKey: tp.filterKey };
       for (const raw of state.bagItemsRaw) {
         const ev = _buildBagItem(raw, eqMap, profFilter);
         if (ev.cat !== "top") continue;
@@ -3232,14 +3324,16 @@
   async function sendSingleTeamTopPick(profileId, itemId) {
     if (state.teamSendBusy) return;
 
-    const profile = teamProfiles[profileId];
-    if (!profile) {
+    const tp = trackedProfiles[profileId];
+    if (!tp) {
       state.teamSendStatus = "Could not find that teammate profile.";
       render();
       return;
     }
+    const snap   = latestSnap(tp);
+    const profile = { playerId: tp.playerId, username: tp.username, equippedMap: snap?.equippedMap ?? {}, filterKey: tp.filterKey };
 
-    const eqMap      = profile.equippedMap || {};
+    const eqMap      = profile.equippedMap;
     const profFilter = profile.filterKey ?? state.activeFilterKey;
     const raw        = state.bagItemsRaw.find(i => String(i.id) === String(itemId));
     if (!raw) {
@@ -3357,66 +3451,86 @@
 
   const teamOpen = {};   // profileId → bool (section expanded state)
 
-  function renderTeam() {
-    const profiles = Object.values(teamProfiles).sort((a, b) => b.savedAt - a.savedAt);
+  function storageWarningBanner() {
+    if (storageUsedKB < STORAGE_WARN_KB) return "";
+    const pct  = Math.round(storageUsedKB / STORAGE_LIMIT_KB * 100);
+    const crit = storageUsedKB >= STORAGE_LIMIT_KB * 0.95;
+    return `<div class="sg-storage-warn${crit?" crit":""}">
+      ⚠ Storage ${pct}% full (${storageUsedKB} / ${STORAGE_LIMIT_KB} KB).
+      ${crit ? "New snapshots may not be saved!" : "Consider removing old players."}
+    </div>`;
+  }
 
-    if (!profiles.length) {
-      return `<div class="sg-hint">No profiles saved yet.<br>Click <b>Inspect</b> on a player<br>then hit <b>💾 Save Profile</b>.</div>`;
-    }
-    if (!state.bagItemsRaw.length) {
-      return `<div class="sg-hint">Open <strong>Inventory</strong><br>to load your bag items first.</div>`;
+  function renderTeam() {
+    const all = Object.values(trackedProfiles).sort((a, b) =>
+      (latestSnap(b)?.ts ?? 0) - (latestSnap(a)?.ts ?? 0));
+
+    if (!all.length) {
+      return `<div class="sg-hint">No players tracked yet.<br>Inspect someone to start tracking.</div>`;
     }
 
     const filterKeys = [...state.filters.keys()];
+    const hasBag     = state.bagItemsRaw.length > 0;
     const sendPlan   = buildTeamSendPlan();
 
-    let html = `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;">
+    let html = storageWarningBanner() + `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;">
       <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
         <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team Top Picks</span>
-        <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · one best teammate per item</span>
+        <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · toggle active to include</span>
         ${state.teamSendStatus ? `<span style="color:${state.teamSendStatus.startsWith("Sent") ? "#4ade80" : (state.teamSendStatus.startsWith("Sending") || state.teamSendStatus.startsWith("Attaching")) ? "#93c5fd" : "#fca5a5"};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
       </div>
-      <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Open Mail > New Mail, attach all Top Picks for each teammate, then send one mail per teammate">
+      <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send top picks via mail to active teammates">
         📬 ${state.teamSendBusy ? "Sending…" : "Send Top Picks"}
       </button>
     </div>`;
-    for (const profile of profiles) {
-      const eqMap      = profile.equippedMap;
+
+    for (const tp of all) {
+      const snap = latestSnap(tp);
+      if (!snap) continue;
+      const eqMap      = snap.equippedMap;
       const eqWeapon   = Object.values(eqMap).find(i => ITEM_TYPE_TO_SLOT[i.type] === "Weapon");
       const icon       = eqWeapon ? (ITEM_ICONS[eqWeapon.type] ?? "⚔️") : "❓";
       const wtype      = eqWeapon ? eqWeapon.type : "unknown";
-      const profFilter = profile.filterKey ?? state.activeFilterKey;
-
-      // Evaluate every bag item against this teammate's gear using their assigned filter
-      const topItems = [];
-      for (const raw of state.bagItemsRaw) {
-        const ev = _buildBagItem(raw, eqMap, profFilter);
-        if (ev.cat === "top") topItems.push(ev);
-      }
-      topItems.sort((a, b) => b.prefScore - a.prefScore);
-
-      const isOpen = teamOpen[profile.playerId] !== false;  // default open
-      const d = new Date(profile.savedAt);
+      const profFilter = tp.filterKey || state.activeFilterKey;
+      const isActive   = tp.active !== false;
+      const isOpen     = teamOpen[tp.playerId] !== false;
+      const d  = new Date(snap.ts);
       const ts = `${d.getDate().toString().padStart(2,"0")}.${(d.getMonth()+1).toString().padStart(2,"0")} ${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}`;
+
+      let topItemsHtml = "";
+      if (isActive && hasBag) {
+        const topItems = [];
+        for (const raw of state.bagItemsRaw) {
+          const ev = _buildBagItem(raw, eqMap, profFilter);
+          if (ev.cat === "top") topItems.push(ev);
+        }
+        topItems.sort((a, b) => b.prefScore - a.prefScore);
+        topItemsHtml = topItems.length
+          ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile({ equippedMap: eqMap, levelText: snap.levelText }), { teamSendProfileId: tp.playerId })).join("")
+          : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is a Top Pick for ${esc(tp.username)} right now.</div>`;
+      } else if (isActive) {
+        topItemsHtml = `<div class="sg-hint">Open Inventory to load bag items.</div>`;
+      } else {
+        topItemsHtml = `<div style="color:#374151;font-size:10px;padding:8px 12px;font-style:italic;">Inactive — toggle on to see top picks.</div>`;
+      }
 
       const filterChips = filterKeys.map(k => {
         const active = k === profFilter;
-        return `<button class="sg-btn sg-team-fchip${active?" sg-team-fchip-on":""}" data-team-fset="${esc(profile.playerId)}" data-fkey="${esc(k)}" style="padding:1px 6px;font-size:9px;${active?"border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.18);color:#93c5fd;":""}">${esc(k)}</button>`;
+        return `<button class="sg-btn sg-team-fchip${active?" sg-team-fchip-on":""}" data-team-fset="${esc(tp.playerId)}" data-fkey="${esc(k)}" style="padding:1px 6px;font-size:9px;${active?"border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.18);color:#93c5fd;":""}">${esc(k)}</button>`;
       }).join("");
 
-      html += `<div class="sg-cat-section" data-team-pid="${esc(profile.playerId)}">
+      html += `<div class="sg-cat-section" data-team-pid="${esc(tp.playerId)}">
         <div class="sg-team-header">
           <span class="sg-cat-title" style="gap:6px;">
+            <button class="sg-team-toggle${isActive?" on":""}" data-team-active="${esc(tp.playerId)}" title="${isActive?"Deactivate":"Activate"}"></button>
             <span style="font-size:13px;">${icon}</span>
-            <b style="font-size:12px;color:#e8eefc;">${esc(profile.username)}</b>
-            <span style="color:#4b5563;font-size:10px;">${esc(profile.levelText)} · ${esc(wtype)}</span>
-            ${topItems.length
-              ? `<span class="sg-badge rec-top" style="margin-left:4px;">${topItems.length} Top</span>`
-              : `<span style="color:#374151;font-size:10px;">(no top picks)</span>`}
+            <b style="font-size:12px;color:${isActive?"#e8eefc":"#4b5563"};">${esc(tp.username)}</b>
+            <span style="color:#4b5563;font-size:10px;">${esc(snap.levelText)} · ${esc(wtype)}</span>
+            <span style="color:#374151;font-size:9px;">${esc(String(tp.snapshots.length))} snap</span>
           </span>
           <span style="display:flex;gap:4px;align-items:center;">
             <span style="color:#1e293b;font-size:9px;">${ts}</span>
-            <button class="sg-icon-btn sg-team-del" data-team-del="${esc(profile.playerId)}" title="Remove">✗</button>
+            <button class="sg-icon-btn sg-team-del" data-team-del="${esc(tp.playerId)}" title="Remove">✗</button>
             <span class="sg-cat-toggle">${isOpen ? "▾" : "▸"}</span>
           </span>
         </div>
@@ -3425,9 +3539,7 @@
           ${filterChips}
         </div>
         <div class="sg-cat-body${isOpen ? "" : " collapsed"}">
-          ${topItems.length
-            ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile(profile), { teamSendProfileId: profile.playerId })).join("")
-            : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is a Top Pick for ${esc(profile.username)} right now.</div>`}
+          ${topItemsHtml}
         </div>
       </div>`;
     }
@@ -3435,11 +3547,114 @@
   }
 
   /**************************************************************************
-   * INSPECT MODAL — Save Button
+   * RENDER — History Tab
    **************************************************************************/
 
-  function injectInspectSaveBtn(modal) {
-    // Walk React fiber to find the playerId prop
+  const STAT_LABELS = {
+    atkPhys: "Atk (Phys)", atkSpeed: "Atk Speed", critChance: "Crit %",
+    critDmg: "Crit Dmg %", hitChance: "Hit %", maxHpStat: "Max HP",
+    def: "Defense", allStats: "All Stats", maxManaStat: "Max Mana", manaRegen: "Mana Regen",
+  };
+
+  function renderHistory() {
+    const tracked = Object.values(trackedProfiles)
+      .filter(tp => tp.snapshots.length >= 1)
+      .sort((a, b) => (latestSnap(b)?.ts ?? 0) - (latestSnap(a)?.ts ?? 0));
+
+    if (!tracked.length) {
+      return `<div class="sg-hint">No tracked players yet.<br>Inspect someone to start.</div>`;
+    }
+
+    const selPid = state.historySelectedPlayer;
+    const selTp  = selPid ? trackedProfiles[selPid] : null;
+
+    const playerList = tracked.map(tp => {
+      const n = tp.snapshots.length;
+      return `<button class="sg-hist-player-btn${selPid === tp.playerId ? " active" : ""}" data-hist-pid="${esc(tp.playerId)}">
+        ${esc(tp.username)}
+        <span style="font-size:9px;color:#374151;float:right;">${n} snap${n>1?"s":""}</span>
+      </button>`;
+    }).join("");
+
+    let diffHtml = "";
+    if (selTp && selTp.snapshots.length >= 2) {
+      const prev = selTp.snapshots[selTp.snapshots.length - 2];
+      const curr = selTp.snapshots[selTp.snapshots.length - 1];
+
+      const prevStats = (prev.charStats && Object.keys(prev.charStats).length)
+        ? prev.charStats : deriveCharStatsFromProfile({ equippedMap: prev.equippedMap, levelText: prev.levelText });
+      const currStats = (curr.charStats && Object.keys(curr.charStats).length)
+        ? curr.charStats : deriveCharStatsFromProfile({ equippedMap: curr.equippedMap, levelText: curr.levelText });
+
+      const fmtN = (n) => n == null ? "—" : (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+      let statRows = "";
+      for (const [key, label] of Object.entries(STAT_LABELS)) {
+        const pv = prevStats[key] ?? null;
+        const cv = currStats[key] ?? null;
+        if (pv == null && cv == null) continue;
+        const diff = (cv ?? 0) - (pv ?? 0);
+        const cls  = diff > 0.05 ? "sg-hist-up" : diff < -0.05 ? "sg-hist-dn" : "sg-hist-same";
+        const sign = diff > 0.05 ? "+" : "";
+        statRows += `<div class="sg-hist-stat-row">
+          <span class="sg-hist-stat-lbl">${label}</span>
+          <span>
+            <span style="color:#64748b;">${fmtN(pv)}</span>
+            <span style="color:#374151;margin:0 3px;">→</span>
+            <span class="${cls}">${fmtN(cv)} ${diff !== 0 ? `(${sign}${fmtN(diff)})` : ""}</span>
+          </span>
+        </div>`;
+      }
+
+      const allSlots = new Set([...Object.keys(prev.equippedMap), ...Object.keys(curr.equippedMap)]);
+      let gearRows = ""; let anyGearChange = false;
+      for (const slot of allSlots) {
+        const pi = prev.equippedMap[slot];
+        const ci = curr.equippedMap[slot];
+        const pName = pi ? (pi.name ?? pi.type ?? "?") : "—";
+        const cName = ci ? (ci.name ?? ci.type ?? "?") : "—";
+        if (pName === cName) continue;
+        anyGearChange = true;
+        gearRows += `<div class="sg-hist-slot">
+          <span class="sg-hist-slot-name">${esc(slot)}</span>
+          <span style="color:#f87171;">${esc(pName)}</span>
+          <span style="color:#374151;">→</span>
+          <span style="color:#4ade80;">${esc(cName)}</span>
+        </div>`;
+      }
+
+      const fmtDate = d => { const dt = new Date(d); return `${dt.getDate().toString().padStart(2,"0")}.${(dt.getMonth()+1).toString().padStart(2,"0")} ${dt.getHours().toString().padStart(2,"0")}:${dt.getMinutes().toString().padStart(2,"0")}`; };
+
+      diffHtml = `
+        <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
+          <b style="font-size:12px;color:#e8eefc;">${esc(selTp.username)}</b>
+          <span style="font-size:9px;color:#4b5563;margin-left:6px;">${fmtDate(prev.ts)} → ${fmtDate(curr.ts)}</span>
+        </div>
+        <div style="padding:6px 10px;">
+          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Stats</div>
+          ${statRows || `<div style="color:#374151;font-size:10px;">No stat changes.</div>`}
+        </div>
+        <div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
+          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Gear</div>
+          ${anyGearChange ? gearRows : `<div style="color:#374151;font-size:10px;">No gear changes.</div>`}
+        </div>`;
+    } else if (selTp) {
+      diffHtml = `<div class="sg-hint">Only 1 snapshot.<br>Inspect again to see changes.</div>`;
+    } else {
+      diffHtml = `<div class="sg-hint">Select a player on the left<br>to view their history.</div>`;
+    }
+
+    return storageWarningBanner() + `<div style="display:flex;height:100%;min-height:200px;">
+      <div style="width:130px;flex-shrink:0;border-right:1px solid rgba(255,255,255,.05);overflow-y:auto;">${playerList}</div>
+      <div style="flex:1;overflow-y:auto;">${diffHtml}</div>
+    </div>`;
+  }
+
+  /**************************************************************************
+   * INSPECT MODAL — Auto-track badge
+   **************************************************************************/
+
+  function injectInspectBadge(modal) {
     const fkey = Object.keys(modal).find(k => k.startsWith("__reactFiber"));
     let playerId = null;
     if (fkey) {
@@ -3451,65 +3666,31 @@
     }
     if (!playerId) return;
 
-    function tryInject() {
-      if (modal.querySelector(".sg-inspect-save")) return;  // already injected
+    function tryAutoSave() {
+      if (modal.querySelector(".sg-inspect-badge")) return;
       const usernameEl = modal.querySelector(".inspect-username");
-      if (!usernameEl) return;  // async content not yet loaded
+      if (!usernameEl) return;
 
       const username  = usernameEl.textContent.trim() || "Unknown";
       const levelText = modal.querySelector(".inspect-level")?.textContent?.trim() ?? "";
 
-      const alreadySaved = !!teamProfiles[playerId];
+      pendingModalInfo[playerId] = { username, levelText };
 
-      const wrap = document.createElement("div");
-      wrap.className = "sg-inspect-save";
-      wrap.style.cssText = "display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;";
+      const data = pendingInspect[playerId];
+      if (data) recordSnapshot(playerId, username, levelText, data);
 
-      const saveBtn = document.createElement("button");
-      saveBtn.className = "sg-btn";
-      saveBtn.textContent = alreadySaved ? "🔄 Update Profile" : "💾 Save Profile";
-
-      const removeBtn = document.createElement("button");
-      removeBtn.className = "sg-btn";
-      removeBtn.style.cssText = "color:#f87171;border-color:rgba(248,113,113,.3);display:" + (alreadySaved ? "inline-block" : "none") + ";";
-      removeBtn.textContent = "✗ Remove";
-
-      saveBtn.addEventListener("click", () => {
-        const data = pendingInspect[playerId];
-        if (!data) { saveBtn.textContent = "⚠ No data yet…"; setTimeout(() => { saveBtn.textContent = "🔄 Update Profile"; }, 2000); return; }
-        teamProfiles[playerId] = {
-          playerId, username, levelText,
-          equippedMap: buildEquippedMap(data.equipped),
-          charStats:   parseInspectCharStats(data),
-          filterKey: teamProfiles[playerId]?.filterKey ?? state.activeFilterKey,
-          savedAt: Date.now(),
-        };
-        saveTeamProfiles();
-        saveBtn.textContent = "✓ Saved!";
-        saveBtn.style.color = "#4ade80";
-        removeBtn.style.display = "inline-block";
-        setTimeout(() => { saveBtn.textContent = "🔄 Update Profile"; saveBtn.style.color = ""; }, 2000);
-      });
-
-      removeBtn.addEventListener("click", () => {
-        delete teamProfiles[playerId];
-        saveTeamProfiles();
-        saveBtn.textContent = "💾 Save Profile";
-        removeBtn.style.display = "none";
-      });
-
-      wrap.appendChild(saveBtn);
-      wrap.appendChild(removeBtn);
+      const badge = document.createElement("div");
+      badge.className = "sg-inspect-badge";
+      badge.textContent = "📋 Tracked";
       modal.style.position = "relative";
-      modal.appendChild(wrap);
+      modal.appendChild(badge);
     }
 
-    tryInject();
-    if (!modal.querySelector(".sg-inspect-save")) {
-      // Inspect modal loads async — watch for username to appear
+    tryAutoSave();
+    if (!modal.querySelector(".sg-inspect-badge")) {
       const obs = new MutationObserver(() => {
-        tryInject();
-        if (modal.querySelector(".sg-inspect-save")) obs.disconnect();
+        tryAutoSave();
+        if (modal.querySelector(".sg-inspect-badge")) obs.disconnect();
       });
       obs.observe(modal, { childList: true, subtree: true });
     }
@@ -3520,9 +3701,9 @@
       for (const m of muts) {
         for (const n of m.addedNodes) {
           if (n.nodeType !== 1) continue;
-          if (n.classList?.contains("inspect-modal")) { injectInspectSaveBtn(n); continue; }
+          if (n.classList?.contains("inspect-modal")) { injectInspectBadge(n); continue; }
           const inner = n.querySelector?.(".inspect-modal");
-          if (inner) injectInspectSaveBtn(inner);
+          if (inner) injectInspectBadge(inner);
         }
       }
     });
@@ -3544,6 +3725,7 @@
     else if (state.activeTab==="filters") body.innerHTML = renderFilters();
     else if (state.activeTab==="market")  body.innerHTML = renderMarket();
     else if (state.activeTab==="team")    body.innerHTML = renderTeam();
+    else if (state.activeTab==="history") body.innerHTML = renderHistory();
     else                                  body.innerHTML = renderStats();
 
     if (state.activeTab==="filters") {
@@ -3751,10 +3933,10 @@
     if (state.activeTab==="team") {
       body.querySelectorAll(".sg-team-header").forEach(header => {
         header.addEventListener("click", e => {
-          if (e.target.closest(".sg-team-del")) return;
-          const pid     = header.closest("[data-team-pid]")?.dataset.teamPid;
-          const body_   = header.nextElementSibling;
-          const toggle  = header.querySelector(".sg-cat-toggle");
+          if (e.target.closest(".sg-team-del") || e.target.closest(".sg-team-toggle") || e.target.closest(".sg-team-fchip")) return;
+          const pid    = header.closest("[data-team-pid]")?.dataset.teamPid;
+          const body_  = header.nextElementSibling;
+          const toggle = header.querySelector(".sg-cat-toggle");
           const nowOpen = body_.classList.toggle("collapsed") === false;
           if (toggle) toggle.textContent = nowOpen ? "▾" : "▸";
           if (pid) teamOpen[pid] = nowOpen;
@@ -3765,12 +3947,23 @@
           e.stopPropagation();
           const pid = btn.dataset.teamDel;
           if (pid) {
-            delete teamProfiles[pid];
+            delete trackedProfiles[pid];
             if (state.marketCtxPlayerId === pid) {
               state.marketCtxPlayerId = null;
               rebuildMarketItems();
             }
-            saveTeamProfiles();
+            saveTrackedProfiles();
+            render();
+          }
+        });
+      });
+      body.querySelectorAll(".sg-team-toggle").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.stopPropagation();
+          const pid = btn.dataset.teamActive;
+          if (pid && trackedProfiles[pid]) {
+            trackedProfiles[pid].active = !trackedProfiles[pid].active;
+            saveTrackedProfiles();
             render();
           }
         });
@@ -3780,9 +3973,9 @@
           e.stopPropagation();
           const pid  = btn.dataset.teamFset;
           const fkey = btn.dataset.fkey;
-          if (pid && fkey && teamProfiles[pid]) {
-            teamProfiles[pid].filterKey = fkey;
-            saveTeamProfiles();
+          if (pid && fkey && trackedProfiles[pid]) {
+            trackedProfiles[pid].filterKey = fkey;
+            saveTrackedProfiles();
             render();
           }
         });
@@ -3810,6 +4003,15 @@
             state.teamSendStatus = err?.message || String(err);
             render();
           });
+        });
+      });
+    }
+
+    if (state.activeTab==="history") {
+      body.querySelectorAll(".sg-hist-player-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.historySelectedPlayer = btn.dataset.histPid ?? null;
+          render();
         });
       });
     }
@@ -3873,7 +4075,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.24.0',
+    version:     '8.25.0',
     category:    'fighter',
   });
 })();
