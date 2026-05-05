@@ -1057,7 +1057,10 @@
           open: isPanelOpen(app, `${CONFIG.appId}-manager`),
         },
         ...[...app.modules.values()]
-          .filter((module) => getPanelState(app, module.id).enabled)
+          .filter((module) =>
+            app.panels.has(module.id) &&
+            getPanelState(app, module.id).enabled
+          )
           .map((module) => ({
             id: module.id,
             icon: module.icon,
@@ -1265,6 +1268,7 @@
         footer:      config.footer      || 'Drag title bar · resize from corner.',
         render:      config.render      || null,
       });
+      this.renderTray(app);
     },
   };
 
