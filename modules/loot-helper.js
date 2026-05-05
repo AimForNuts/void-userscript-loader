@@ -312,27 +312,49 @@
    * TEAM PROFILES
    **************************************************************************/
 
+  // Key used with _moduleApp.storage (loader adds "voididle.module.loot-helper." prefix → GM storage)
   const TRACKED_KEY = "sgTrackedProfiles";
-  const trackedProfiles = (() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(TRACKED_KEY) || "{}");
-      // Migrate old sgTeamProfiles format
-      const old = (() => { try { return JSON.parse(localStorage.getItem("sgTeamProfiles") || "{}"); } catch { return {}; } })();
-      for (const [pid, p] of Object.entries(old)) {
-        if (!stored[pid] && p.equippedMap) {
-          stored[pid] = {
-            playerId: pid, username: p.username,
-            active: true, filterKey: p.filterKey ?? "",
-            snapshots: [{ ts: p.savedAt ?? Date.now(), levelText: p.levelText ?? "", equippedMap: p.equippedMap, charStats: p.charStats ?? {} }],
-          };
-        }
+  let trackedProfiles = {}; // populated by loadTrackedProfiles() during boot()
+
+  function loadTrackedProfiles() {
+    let stored = {};
+    if (_moduleApp) {
+      // Primary: loader's GM-backed storage
+      stored = _moduleApp.storage.get(TRACKED_KEY) ?? {};
+      // One-time migration: promote old direct localStorage key into GM storage
+      if (!Object.keys(stored).length) {
+        try {
+          const legacy = JSON.parse(localStorage.getItem("sgTrackedProfiles") || "{}");
+          if (Object.keys(legacy).length) {
+            stored = legacy;
+            _moduleApp.storage.set(TRACKED_KEY, stored);
+            localStorage.removeItem("sgTrackedProfiles");
+          }
+        } catch {}
       }
-      for (const p of Object.values(stored)) {
-        if (p.teamMember === undefined) p.teamMember = true;
+    } else {
+      // Standalone mode (no loader): fall back to localStorage
+      try { stored = JSON.parse(localStorage.getItem("sgTrackedProfiles") || "{}"); } catch {}
+    }
+
+    // Migrate old sgTeamProfiles format
+    const old = (() => { try { return JSON.parse(localStorage.getItem("sgTeamProfiles") || "{}"); } catch { return {}; } })();
+    for (const [pid, p] of Object.entries(old)) {
+      if (!stored[pid] && p.equippedMap) {
+        stored[pid] = {
+          playerId: pid, username: p.username,
+          active: true, filterKey: p.filterKey ?? "",
+          snapshots: [{ ts: p.savedAt ?? Date.now(), levelText: p.levelText ?? "", equippedMap: p.equippedMap, charStats: p.charStats ?? {} }],
+        };
       }
-      return stored;
-    } catch { return {}; }
-  })();
+    }
+    for (const p of Object.values(stored)) {
+      if (p.teamMember === undefined) p.teamMember = true;
+    }
+
+    Object.assign(trackedProfiles, stored);
+    storageUsedKB = estimateStorageKB(); // refresh after any migration cleared localStorage
+  }
 
   const STORAGE_WARN_KB  = 4000;
   const STORAGE_LIMIT_KB = 5120;
@@ -347,9 +369,13 @@
 
   function saveTrackedProfiles() {
     try {
-      localStorage.setItem(TRACKED_KEY, JSON.stringify(trackedProfiles));
-      storageUsedKB = estimateStorageKB();
-    } catch { storageUsedKB = estimateStorageKB(); }
+      if (_moduleApp) {
+        _moduleApp.storage.set(TRACKED_KEY, trackedProfiles);
+      } else {
+        localStorage.setItem("sgTrackedProfiles", JSON.stringify(trackedProfiles));
+      }
+    } catch {}
+    storageUsedKB = estimateStorageKB();
   }
 
   // Pending modal info keyed by playerId (for auto-save when DOM loads before API response)
@@ -3498,9 +3524,10 @@
     if (storageUsedKB < STORAGE_WARN_KB) return "";
     const pct  = Math.round(storageUsedKB / STORAGE_LIMIT_KB * 100);
     const crit = storageUsedKB >= STORAGE_LIMIT_KB * 0.95;
+    // Profiles are in GM storage (separate quota); this warning is for the game's localStorage only
     return `<div class="sg-storage-warn${crit?" crit":""}">
-      ⚠ Storage ${pct}% full (${storageUsedKB} / ${STORAGE_LIMIT_KB} KB).
-      ${crit ? "New snapshots may not be saved!" : "Consider removing old players."}
+      ⚠ Game localStorage ${pct}% full (${storageUsedKB} / ${STORAGE_LIMIT_KB} KB).
+      ${crit ? "Game data may fail to save!" : "Profiles are in extension storage — this is the game's own storage."}
     </div>`;
   }
 
@@ -4225,7 +4252,7 @@
     _charViewObs.observe(document.body, { childList: true, subtree: true });
   }
 
-  function boot() { loadStats(); installUI(); setupTooltipObserver(); setupInspectObserver(); setupCharViewObserver(); tick(); _tickInterval = setInterval(tick, 1000); }
+  function boot() { loadTrackedProfiles(); loadStats(); installUI(); setupTooltipObserver(); setupInspectObserver(); setupCharViewObserver(); tick(); _tickInterval = setInterval(tick, 1000); }
     return {
       ...definition,
       init(app) { _moduleApp = app; boot(); },
@@ -4253,7 +4280,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.28.0',
+    version:     '8.29.0',
     category:    'fighter',
   });
 })();
