@@ -828,24 +828,23 @@
       return `<span class="sg-diff ${d.isUp?"sg-diff-up":"sg-diff-down"}${isStar?" pref-star":isPref?" pref":""}">${esc(d.text)}</span>`;
     }).join("");
 
-    // DPS delta: simulate swapping this item in
+    // DPS / EHP / Mana deltas — use selfCtx() so derived gear stats work even without char-screen open
+    const sc = selfCtx();
     let dpsDeltaHtml = "";
-    if (state.atkPhys != null && state.atkSpeed != null && state.atkSpeed > 0) {
-      const curDPS         = calcDPS();
-      const curAllStats    = state.allStats ?? 0;
+    if (sc.atkPhys != null && sc.atkSpeed != null && sc.atkSpeed > 0) {
+      const curDPS         = calcDPS(sc);
+      const curAllStats    = sc.allStats ?? 0;
       const atkDelta       = (ttStats.atk       ?? 0) - (eqBaseStats.atk       ?? 0);
       const allStatsDelta  = (ttStats.allStats   ?? 0) - (eqBaseStats.allStats  ?? 0);
       const eqSpdPct       = eqBaseStats.atkSpeed ?? 0;
       const newSpdPct      = ttStats.atkSpeed    ?? 0;
-      // allStats multiplies all ATK sources, so back-compute baseATK then re-apply new multiplier
-      const baseATK        = state.atkPhys / (1 + curAllStats / 100);
+      const baseATK        = sc.atkPhys / (1 + curAllStats / 100);
       const newAtk         = (baseATK + atkDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-      // atkSpeed stat is a % bonus that shortens the attack interval
-      const newSpd         = state.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
-      const newCrit        = (state.critChance ?? 0) + (ttStats.critChance ?? 0) - (eqBaseStats.critChance ?? 0);
-      const newCritD       = (state.critDmg    ?? 0) + (ttStats.critDmg    ?? 0) - (eqBaseStats.critDmg    ?? 0);
+      const newSpd         = sc.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
+      const newCrit        = (sc.critChance ?? 0) + (ttStats.critChance ?? 0) - (eqBaseStats.critChance ?? 0);
+      const newCritD       = (sc.critDmg    ?? 0) + (ttStats.critDmg    ?? 0) - (eqBaseStats.critDmg    ?? 0);
       if (curDPS != null && newAtk > 0 && newSpd > 0) {
-        const hitRate = (state.hitChance ?? 95) / 100;
+        const hitRate = (sc.hitChance ?? 95) / 100;
         const newDPS  = (newAtk / newSpd) * hitRate * (1 + (newCrit / 100) * ((newCritD / 100) - 1));
         const delta   = newDPS - curDPS;
         const pct     = (delta / curDPS) * 100;
@@ -858,14 +857,14 @@
     // EHP delta
     let survDeltaHtml = "";
     {
-      const curSurv = calcSurvivability(state.maxHpStat, state.def ?? 0);
+      const curSurv = calcSurvivability(sc.maxHpStat, sc.def ?? 0);
       if (curSurv) {
-        const curAllStats   = state.allStats ?? 0;
+        const curAllStats   = sc.allStats ?? 0;
         const allStatsDelta = (ttStats.allStats ?? 0) - (eqBaseStats.allStats ?? 0);
         const hpDelta       = (ttStats.hp  ?? 0) - (eqBaseStats.hp  ?? 0);
         const defDelta      = (ttStats.def ?? 0) - (eqBaseStats.def ?? 0);
-        const baseHP  = state.maxHpStat / (1 + curAllStats / 100);
-        const baseDEF = (state.def ?? 0) / (1 + curAllStats / 100);
+        const baseHP  = sc.maxHpStat / (1 + curAllStats / 100);
+        const baseDEF = (sc.def ?? 0) / (1 + curAllStats / 100);
         const newHP   = (baseHP  + hpDelta)  * (1 + (curAllStats + allStatsDelta) / 100);
         const newDEF  = (baseDEF + defDelta) * (1 + (curAllStats + allStatsDelta) / 100);
         const newSurv = calcSurvivability(newHP, newDEF);
@@ -881,19 +880,19 @@
       }
     }
 
-    // Combined mana score: pool + regen × 30
+    // Combined mana score: pool + regen × 3
     let manaDeltaHtml = "";
     {
-      const curAllStats   = state.allStats ?? 0;
+      const curAllStats   = sc.allStats ?? 0;
       const allStatsDelta = (ttStats.allStats  ?? 0) - (eqBaseStats.allStats  ?? 0);
       const manaDelta     = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
       const mregenDelta   = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
       if (manaDelta !== 0 || mregenDelta !== 0 || allStatsDelta !== 0) {
-        const baseMana   = (state.maxManaStat ?? 0) / (1 + curAllStats / 100);
-        const baseMRegen = (state.manaRegen  ?? 0)  / (1 + curAllStats / 100);
+        const baseMana   = (sc.maxManaStat ?? 0) / (1 + curAllStats / 100);
+        const baseMRegen = (sc.manaRegen  ?? 0)  / (1 + curAllStats / 100);
         const newMana    = (baseMana   + manaDelta)   * (1 + (curAllStats + allStatsDelta) / 100);
         const newMRegen  = (baseMRegen + mregenDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-        const score = (newMana - (state.maxManaStat ?? 0)) + (newMRegen - (state.manaRegen ?? 0)) * 3;
+        const score = (newMana - (sc.maxManaStat ?? 0)) + (newMRegen - (sc.manaRegen ?? 0)) * 3;
         if (Math.abs(score) >= 1) {
           const sign = score >= 0 ? "+" : "";
           const col  = score > 0 ? "#60a5fa" : "#f87171";
@@ -1253,8 +1252,8 @@
       filterHasPrefMR[key]     = multiRollCount > 0 && [...itemStatKeys].some(s => fc.preferredStats.has(s));
     }
 
-    const activeKey     = filterKeyOverride ?? state.activeFilterKey;
-    const activeFC      = state.filters.get(activeKey);
+    const activeKey     = filterKeyOverride || state.activeFilterKey;
+    const activeFC      = state.filters.get(activeKey) ?? mkFC([]);
     const prefScore     = filterScores[activeKey]        ?? 0;
     const activePriUps  = filterPriorityUps[activeKey]   ?? 0;
     const activePriMR   = filterHasPriorityMR[activeKey] ?? false;
@@ -2888,7 +2887,7 @@
       if (!tp.active || tp.teamMember === false) continue;
       const snap       = latestSnap(tp);
       const eqMap      = snap?.equippedMap || {};
-      const profFilter = tp.filterKey ?? state.activeFilterKey;
+      const profFilter = tp.filterKey || state.activeFilterKey;
       // Expose a profile-shaped object for mail functions that expect .username/.playerId
       const profile = { playerId: tp.playerId, username: tp.username, equippedMap: eqMap, filterKey: tp.filterKey };
       for (const raw of state.bagItemsRaw) {
@@ -4214,7 +4213,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.27.0',
+    version:     '8.27.1',
     category:    'fighter',
   });
 })();
