@@ -1152,9 +1152,6 @@
         app.modules.delete(id);
         ModuleRegistry.delete(id);
 
-        // Clear all storage for this module
-        freeModuleMemory(id);
-
         // Persist the disabled state
         ModuleLoader.saveUserSetting(id, false);
 
@@ -1569,9 +1566,6 @@
         logger.warn(`Cannot reload "${id}" — not found in cached manifest`);
         return { ok: false, error: 'Not in manifest' };
       }
-
-      // Clear source cache so next _loadOne fetches fresh from network
-      localStorage.removeItem(CONFIG.cache.moduleKey(id, entry.version));
 
       const result = await this._loadOne(app, entry);
       app.events.emit('loader:module:reloaded', { id, ok: result.ok, error: result.error });
