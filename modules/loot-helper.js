@@ -787,8 +787,8 @@
       const rawText    = [...valueEl.childNodes]
         .filter(n => n.nodeType === 3).map(n => n.textContent).join("").trim();
       const totalValue = parseFloat(rawText.replace(/[+%,\s]/g, ""));
-      // For enhanced (+N) items the game shows "total (base)" — read base directly
-      const baseMatch  = rawText.match(/\(([0-9.]+)%?\)/);
+      // For enhanced (+N) items the game shows "total (quality%) [base]" — read base from []
+      const baseMatch  = rawText.match(/\[([0-9.]+)%?\]/);
       const baseValue  = baseMatch ? parseFloat(baseMatch[1]) : totalValue;
       const key = TOOLTIP_STAT_MAP[label];
       if (key && !isNaN(totalValue)) {
