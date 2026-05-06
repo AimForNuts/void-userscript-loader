@@ -224,6 +224,7 @@
     "ATKSPEED":    "atkSpeed",
     "CRIT":        "critChance",
     "CRIT CHANCE": "critChance",
+    "CRIT%":       "critChance",
     "CRIT DMG":    "critDmg",
     "MANA REGEN":  "manaRegen",
     "MANAREGEN":   "manaRegen",
@@ -789,12 +790,11 @@
       const valText    = valueEl.textContent ?? "";
       const totalMatch = rawText.match(/[+-]?[0-9]+\.?[0-9]*/) ?? valText.match(/[+-]?[0-9]+\.?[0-9]*/);
       const totalValue = totalMatch ? parseFloat(totalMatch[0]) : NaN;
-      // [base] may be anywhere in the stat row (sibling of .tt-stat-value, not just inside it)
+      // Base value is the second parenthesized group: "ATK+90 (65%)(51)" → base=51
       const rowText    = row.textContent ?? "";
-      const baseMatch  = rowText.match(/\[([0-9.]+)%?\]/);
+      const baseMatch  = rowText.match(/\([^)]+\)\s*\(([0-9.]+%?)\)/);
       const baseValue  = baseMatch ? parseFloat(baseMatch[1]) : totalValue;
       const key = TOOLTIP_STAT_MAP[label];
-      console.log('[LH-DEBUG]', label, '| rawText:', JSON.stringify(rawText), '| rowText:', JSON.stringify(rowText), '| total:', totalValue, '| base:', baseValue, '| key:', key);
       if (key && !isNaN(totalValue)) {
         ttStats[key]      = baseValue;
         ttTotalStats[key] = totalValue;
@@ -4356,7 +4356,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.32.0',
+    version:     '8.33.0',
     category:    'fighter',
   });
 })();
