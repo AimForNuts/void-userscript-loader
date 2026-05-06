@@ -783,12 +783,15 @@
       const label   = row.querySelector(".tt-stat-label")?.textContent?.trim()?.toUpperCase();
       const valueEl = row.querySelector(".tt-stat-value");
       if (!label || !valueEl) return;
-      // Grab only direct text nodes to skip the quality % span
+      // Direct text nodes only → total value before child spans (quality, base) interfere
       const rawText    = [...valueEl.childNodes]
         .filter(n => n.nodeType === 3).map(n => n.textContent).join("").trim();
-      const totalValue = parseFloat(rawText.replace(/[+%,\s]/g, ""));
-      // For enhanced (+N) items the game shows "total (quality%) [base]" — read base from []
-      const baseMatch  = rawText.match(/\[([0-9.]+)%?\]/);
+      // Full element text — [base] may live inside a child span
+      const fullText   = valueEl.textContent ?? "";
+      const totalMatch = rawText.match(/[+-]?[0-9]+\.?[0-9]*/) ?? fullText.match(/[+-]?[0-9]+\.?[0-9]*/);
+      const totalValue = totalMatch ? parseFloat(totalMatch[0]) : NaN;
+      // For enhanced (+N) items the game shows "total (quality%) [base]"
+      const baseMatch  = fullText.match(/\[([0-9.]+)%?\]/);
       const baseValue  = baseMatch ? parseFloat(baseMatch[1]) : totalValue;
       const key = TOOLTIP_STAT_MAP[label];
       if (key && !isNaN(totalValue)) {
