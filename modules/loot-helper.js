@@ -687,6 +687,7 @@
     salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(),
     historySelectedPlayer: null,
     teamManage: false,
+    pinnedItemId: null,
   };
 
   /**************************************************************************
@@ -1056,16 +1057,16 @@
   const CAT_HL_CLASS = { top:"sg-hl-top", up:"sg-hl-up", neu:"sg-hl-neu", sal:"sg-hl-sal" };
 
   function applyBagHighlights() {
-    Object.values(CAT_HL_CLASS).forEach(cls =>
+    [...Object.values(CAT_HL_CLASS), "sg-hl-pin"].forEach(cls =>
       document.querySelectorAll("."+cls).forEach(el => el.classList.remove(cls))
     );
-    if (!state.highlightCats.size || !state.bagItems.length) return;
 
     const hlMap = new Map();
     for (const item of state.bagItems) {
       const cls = state.highlightCats.has(item.cat) ? CAT_HL_CLASS[item.cat] : null;
       if (cls) hlMap.set(item.id, cls);
     }
+    if (state.pinnedItemId != null) hlMap.set(state.pinnedItemId, "sg-hl-pin");
     if (!hlMap.size) return;
 
     const invPanel = document.querySelector(".inv-panel");
@@ -1905,6 +1906,10 @@
         container.querySelectorAll(".sg-tab").forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
         state.activeTab = btn.dataset.tab;
+        if (state.activeTab !== "gear" && state.activeTab !== "team") {
+          state.pinnedItemId = null;
+          applyBagHighlights();
+        }
         const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team" || state.activeTab === "history";
         if (_moduleApp) {
           panelEl.style.width = isWide ? "480px" : "310px";
@@ -1933,6 +1938,7 @@
       .sg-hl-up   { outline:3px solid #3b82f6 !important; box-shadow:0 0 16px 4px rgba(59,130,246,.75) !important; border-radius:4px; }
       .sg-hl-neu  { outline:3px solid #94a3b8 !important; box-shadow:0 0 16px 4px rgba(148,163,184,.65) !important; border-radius:4px; }
       .sg-hl-sal  { outline:3px solid #ef4444 !important; box-shadow:0 0 16px 4px rgba(239,68,68,.75) !important; border-radius:4px; }
+      .sg-hl-pin  { outline:3px solid #f59e0b !important; box-shadow:0 0 20px 6px rgba(245,158,11,.90) !important; border-radius:4px; }
     `;
     document.documentElement.appendChild(_hlStyleEl);
 
@@ -2717,6 +2723,8 @@
     const teamSendButton = opts.teamSendProfileId
       ? `<button type="button" class="sg-btn" data-sg-team-send-one="${esc(opts.teamSendProfileId)}" data-item-id="${esc(item.id)}" ${state.teamSendBusy ? "disabled" : ""} style="padding:1px 6px;font-size:9px;margin-left:4px;${state.teamSendBusy ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send only this item to this teammate through Mail">📬 Send this</button>`
       : "";
+    const isPinned   = state.pinnedItemId === String(item.id);
+    const pinButton  = `<button type="button" class="sg-btn" data-sg-pin-item="${esc(item.id)}" style="padding:1px 6px;font-size:9px;margin-left:4px;${isPinned?"border-color:#f59e0b;color:#fcd34d;":"border-color:rgba(245,158,11,.25);color:#6b5a2a;"}" title="${isPinned?"Remove bag highlight":"Highlight this item in bag"}">📌${isPinned?" Pinned":""}</button>`;
     const badges    = [
       `<span class="sg-badge ${dispRec.cls}">${esc(dispRec.label)}</span>${bumpNote}`,
       `<span class="sg-badge sg-badge-shard">💎 ${item.shards}</span>`,
@@ -2724,6 +2732,7 @@
       multiHtml(item),
       item.classRestricted ? `<span class="sg-badge sg-badge-restricted">🔒 Wrong type</span>` : "",
       teamSendButton,
+      pinButton,
     ].filter(Boolean).join("");
 
     const icon = ITEM_ICONS[item.weaponSubType] ?? "";
@@ -2798,6 +2807,7 @@
         ${_itemDeltasCornerHtml(item, selfCtx())}
         <span class="sg-slot-pill">${esc(item.slotType)}</span>
         <span class="sg-badge sg-badge-shard">💎 ${item.shards}</span>
+        <button type="button" class="sg-btn" data-sg-pin-item="${esc(item.id)}" style="padding:1px 5px;font-size:10px;margin-top:2px;${state.pinnedItemId===String(item.id)?"border-color:#f59e0b;color:#fcd34d;":"border-color:rgba(245,158,11,.25);color:#6b5a2a;"}" title="${state.pinnedItemId===String(item.id)?"Remove bag highlight":"Highlight this item in bag"}">📌</button>
       </div>
     </div>`;
   }
@@ -4139,6 +4149,16 @@
         });
       }
 
+      body.querySelectorAll("[data-sg-pin-item]").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.stopPropagation();
+          const id = btn.dataset.sgPinItem;
+          state.pinnedItemId = state.pinnedItemId === id ? null : id;
+          applyBagHighlights();
+          render();
+        });
+      });
+
       const salvageSelectedBtn = body.querySelector("[data-sg-salvage-selected]");
       if (salvageSelectedBtn) {
         salvageSelectedBtn.addEventListener("click", () => {
@@ -4258,6 +4278,16 @@
           });
         });
       });
+
+      body.querySelectorAll("[data-sg-pin-item]").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.stopPropagation();
+          const id = btn.dataset.sgPinItem;
+          state.pinnedItemId = state.pinnedItemId === id ? null : id;
+          applyBagHighlights();
+          render();
+        });
+      });
     }
 
     if (state.activeTab==="history") {
@@ -4328,7 +4358,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.30.0',
+    version:     '8.31.0',
     category:    'fighter',
   });
 })();
