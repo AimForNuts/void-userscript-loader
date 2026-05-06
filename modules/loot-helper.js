@@ -794,6 +794,7 @@
       const baseMatch  = rowText.match(/\[([0-9.]+)%?\]/);
       const baseValue  = baseMatch ? parseFloat(baseMatch[1]) : totalValue;
       const key = TOOLTIP_STAT_MAP[label];
+      console.log('[LH-DEBUG]', label, '| rawText:', JSON.stringify(rawText), '| rowText:', JSON.stringify(rowText), '| total:', totalValue, '| base:', baseValue, '| key:', key);
       if (key && !isNaN(totalValue)) {
         ttStats[key]      = baseValue;
         ttTotalStats[key] = totalValue;
