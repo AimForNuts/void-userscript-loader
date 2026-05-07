@@ -548,7 +548,7 @@
             if (!state.setZoneReady) return null;
 
             const monsterSlug = state.currentMonsterName
-                ? state.currentMonsterName.toLowerCase().replace(/\s+/g, "-")
+                ? state.currentMonsterName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
                 : "";
 
             return getZoneKeyFor(
