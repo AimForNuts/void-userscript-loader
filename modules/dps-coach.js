@@ -609,15 +609,20 @@
             return out;
         }
 
-        function createEmptyZoneRecord(zoneName = "Unknown Zone", tier = "") {
+        function createEmptyZoneRecord(zoneName = "Unknown Zone", tier = "", monsterName = "", huntAll = null) {
             const cleanZoneName = normalizeZoneName(zoneName);
             const ts = now();
             const base = getDpsCoachSummaryTotals();
+            const monsterSlug = monsterName
+                ? monsterName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+                : "";
 
             return {
-                key: getZoneKeyFor(cleanZoneName, tier),
+                key: getZoneKeyFor(cleanZoneName, tier, monsterSlug, huntAll),
                 zoneName: cleanZoneName,
                 tier: String(tier || ""),
+                monsterName: String(monsterName || ""),
+                huntAll: huntAll === true,
                 firstSeenAt: ts,
                 lastSeenAt: ts,
                 sessions: 0,
@@ -642,10 +647,14 @@
         }
 
         function sanitizeZoneRecord(raw, fallbackKey = "Unknown Zone") {
-            const fallbackText = String(fallbackKey || "Unknown Zone").replace(/\|T\d+$/i, "");
+            const fallbackText = String(fallbackKey || "Unknown Zone")
+                .replace(/\|[^|]+\|[^|]+$/i, "")
+                .replace(/\|T\d+$/i, "");
             const zoneName = normalizeZoneName(raw?.zoneName || fallbackText || "Unknown Zone");
             const tier = String(raw?.tier || parseZoneTier(fallbackKey) || "");
-            const record = createEmptyZoneRecord(zoneName, tier);
+            const monsterName = String(raw?.monsterName || "");
+            const huntAll = raw?.huntAll === true ? true : raw?.huntAll === false ? false : null;
+            const record = createEmptyZoneRecord(zoneName, tier, monsterName, huntAll);
 
             record.firstSeenAt = Number(raw?.firstSeenAt || record.firstSeenAt);
             record.lastSeenAt = Number(raw?.lastSeenAt || record.lastSeenAt);
@@ -695,7 +704,10 @@
 
                 for (const [key, value] of Object.entries(parsed)) {
                     const record = sanitizeZoneRecord(value, key);
-                    record.key = getZoneKeyFor(record.zoneName, record.tier);
+                    const monsterSlugLoad = record.monsterName
+                        ? record.monsterName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+                        : "";
+                    record.key = getZoneKeyFor(record.zoneName, record.tier, monsterSlugLoad, record.huntAll ? record.huntAll : null);
                     loaded[record.key] = mergeZoneRecords(loaded[record.key], record);
                 }
 
@@ -715,7 +727,10 @@
                 const out = {};
                 for (const record of records) {
                     const cleanRecord = sanitizeZoneRecord(record, record.key);
-                    cleanRecord.key = getZoneKeyFor(cleanRecord.zoneName, cleanRecord.tier);
+                    const monsterSlugSave = cleanRecord.monsterName
+                        ? cleanRecord.monsterName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+                        : "";
+                    cleanRecord.key = getZoneKeyFor(cleanRecord.zoneName, cleanRecord.tier, monsterSlugSave, cleanRecord.huntAll ? cleanRecord.huntAll : null);
                     out[cleanRecord.key] = mergeZoneRecords(out[cleanRecord.key], cleanRecord);
                 }
 
