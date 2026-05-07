@@ -1703,6 +1703,12 @@
     .sg-badge-future     { color:#6b7280; border-color:#374151; background:rgba(107,114,128,.08); }
     .sg-badge-restricted { color:#6b7280; border-color:#374151; background:rgba(107,114,128,.06); }
 
+    .sg-ir-badge { display:inline-block; font-weight:700; font-size:10px; padding:1px 5px; border-radius:4px; border:1px solid; }
+    .sg-ir-s { color:#facc15; border-color:#92400e; background:rgba(250,204,21,.12); }
+    .sg-ir-a { color:#4ade80; border-color:#14532d; background:rgba(74,222,128,.10); }
+    .sg-ir-b { color:#60a5fa; border-color:#1e3a5f; background:rgba(96,165,250,.10); }
+    .sg-ir-c { color:#94a3b8; border-color:#374151; background:rgba(148,163,184,.07); }
+
     .sg-filter-row.disabled { opacity:.45; }
     .sg-toggle-btn { font-size:13px; line-height:1; padding:1px 4px; }
     .sg-toggle-btn.off { color:#374151; }
@@ -1937,6 +1943,7 @@
         <button class="sg-tab"        data-tab="market">🏪 Market</button>
         <button class="sg-tab"        data-tab="team">👥 Team</button>
         <button class="sg-tab"        data-tab="history">📜 History</button>
+        <button class="sg-tab"        data-tab="rating">⭐ Rating</button>
       </div>
       <div class="sg-body" id="sgBody"><div class="sg-hint">Waiting for data…</div></div>
     `;
@@ -1952,7 +1959,7 @@
           state.pinnedItemId = null;
           applyBagHighlights();
         }
-        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team" || state.activeTab === "history";
+        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team" || state.activeTab === "history" || state.activeTab === "rating";
         if (_moduleApp) {
           panelEl.style.width = isWide ? "480px" : "310px";
         } else {
@@ -2772,6 +2779,51 @@
     return html;
   }
 
+  const ARCHETYPES = [
+    { id:"dps",  label:"DPS",  stats:new Set(["atk","atkSpeed","critChance","critDmg"]) },
+    { id:"tank", label:"Tank", stats:new Set(["def","hp","healPower","lifesteal"]) },
+    { id:"mana", label:"Mana", stats:new Set(["cdr","mana","manaRegen"]) },
+    { id:"loot", label:"Loot", stats:new Set(["dropRate"]) },
+  ];
+
+  function calcItemIntrinsicGrade(item) {
+    const qualities = item.rollQualities ?? {};
+    const baseStats = item.ownBaseStats ?? {};
+
+    const qVals = Object.values(qualities);
+    if (!qVals.length) return null;
+    const rollScore = qVals.reduce((s, v) => s + v * 100, 0) / qVals.length;
+
+    const statKeys = Object.keys(baseStats).filter(k => k !== "allStats");
+    const allStatsCount = "allStats" in baseStats ? 1 : 0;
+
+    const archHits = {};
+    for (const arch of ARCHETYPES) {
+      archHits[arch.id] = statKeys.filter(k => arch.stats.has(k)).length;
+    }
+    const bestArch = ARCHETYPES.reduce((a, b) => archHits[a.id] >= archHits[b.id] ? a : b);
+    const coreCount = archHits[bestArch.id];
+    const totalNonAllStats = statKeys.length;
+
+    const rawCoherence = totalNonAllStats > 0 ? (coreCount / totalNonAllStats) * 100 : 0;
+    const coherenceScore = Math.min(100, rawCoherence + allStatsCount * 5);
+
+    const statCountBonus = coreCount >= 3 ? 20 : coreCount >= 2 ? 10 : 0;
+
+    const raw = rollScore * 0.5 + coherenceScore * 0.4 + statCountBonus;
+    const score = Math.min(100, raw);
+    const grade = score >= 85 ? "S" : score >= 70 ? "A" : score >= 55 ? "B" : "C";
+
+    return { grade, score, archetype: bestArch.label, rollScore, coherenceScore, statCountBonus, coreCount, allStatsCount };
+  }
+
+  function intrinsicGradeBadgeHtml(item) {
+    const g = calcItemIntrinsicGrade(item);
+    if (!g) return "";
+    const cls = `sg-ir-${g.grade.toLowerCase()}`;
+    return `<span class="sg-ir-badge ${cls}" title="Item Rating: ${g.grade} (${g.score.toFixed(0)}) · ${g.archetype} archetype · Roll ${g.rollScore.toFixed(0)}% · Coherence ${g.coherenceScore.toFixed(0)}%">${g.grade}</span>`;
+  }
+
   // Compact top-right corner: DPS, EHP, combined Mana score (pool + regen × 3)
   function _itemDeltasCornerHtml(item, ctx = state) {
     const lines = [];
@@ -2829,6 +2881,7 @@
       item.isLegacyStar ? `<span class="sg-badge sg-badge-legacy">★ Legacy</span>` : "",
       multiHtml(item),
       item.classRestricted ? `<span class="sg-badge sg-badge-restricted">🔒 Wrong type</span>` : "",
+      intrinsicGradeBadgeHtml(item),
       teamSendButton,
       pinButton,
     ].filter(Boolean).join("");
@@ -2905,6 +2958,7 @@
         ${_itemDeltasCornerHtml(item, selfCtx())}
         <span class="sg-slot-pill">${esc(item.slotType)}</span>
         <span class="sg-badge sg-badge-shard">💎 ${item.shards}</span>
+        ${intrinsicGradeBadgeHtml(item)}
         <button type="button" class="sg-btn" data-sg-pin-item="${esc(item.id)}" style="padding:1px 5px;font-size:10px;margin-top:2px;${state.pinnedItemId===String(item.id)?"border-color:#f59e0b;color:#fcd34d;":"border-color:rgba(245,158,11,.25);color:#6b5a2a;"}" title="${state.pinnedItemId===String(item.id)?"Remove bag highlight":"Highlight this item in bag"}">📌</button>
       </div>
     </div>`;
@@ -3992,6 +4046,61 @@
   }
 
   /**************************************************************************
+   * RENDER — Rating Tab
+   **************************************************************************/
+
+  function renderRating() {
+    const items = state.bagItems;
+    if (!items || !items.length) {
+      return `<div class="sg-hint">No bag items found.<br>Open your inventory first.</div>`;
+    }
+
+    const graded = items
+      .map(item => ({ item, g: calcItemIntrinsicGrade(item) }))
+      .filter(x => x.g)
+      .sort((a, b) => b.g.score - a.g.score);
+
+    if (!graded.length) {
+      return `<div class="sg-hint">No gradeable items found.<br>(Items need roll quality data.)</div>`;
+    }
+
+    const GRADE_ORDER = ["S","A","B","C"];
+    const sections = GRADE_ORDER.map(grade => {
+      const group = graded.filter(x => x.g.grade === grade);
+      if (!group.length) return "";
+      const cls = `sg-ir-${grade.toLowerCase()}`;
+      const rows = group.map(({ item, g }) => {
+        const color  = rarityColor(item.rarity);
+        const forgeStr = item.forgeLevel ? ` +${item.forgeLevel}` : "";
+        const archColor = g.archetype === "DPS" ? "#f97316" : g.archetype === "Tank" ? "#60a5fa" : g.archetype === "Mana" ? "#818cf8" : "#facc15";
+        const doubleTriple = g.coreCount >= 3 ? ` <span style="color:#c084fc;font-size:9px;">Triple</span>` : g.coreCount >= 2 ? ` <span style="color:#a78bfa;font-size:9px;">Double</span>` : "";
+        const allStatsNote = g.allStatsCount ? ` <span style="color:#94a3b8;font-size:9px;">+AllStats</span>` : "";
+        const qualColor = g.rollScore >= 85 ? "#4ade80" : g.rollScore >= 65 ? "#fde68a" : "#f87171";
+        const cohColor  = g.coherenceScore >= 80 ? "#4ade80" : g.coherenceScore >= 55 ? "#fde68a" : "#94a3b8";
+        return `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid rgba(255,255,255,.04);border-left:3px solid ${color};">
+          <span class="sg-ir-badge ${cls}" style="flex-shrink:0;">${grade}</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:11px;font-weight:600;color:${color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.name)}${esc(forgeStr)}</div>
+            <div style="font-size:9px;color:#4b5563;">${esc(item.slotType)} · ${esc(item.rarity)}</div>
+          </div>
+          <div style="text-align:right;font-size:10px;flex-shrink:0;">
+            <div style="color:${archColor};">${g.archetype}${doubleTriple}${allStatsNote}</div>
+            <div><span style="color:${qualColor};" title="Average roll quality">Roll ${g.rollScore.toFixed(0)}%</span> <span style="color:${cohColor};" title="Archetype coherence">Coh ${g.coherenceScore.toFixed(0)}%</span></div>
+            <div style="color:#94a3b8;font-size:9px;">Score ${g.score.toFixed(0)}</div>
+          </div>
+        </div>`;
+      }).join("");
+      return `<div style="padding:4px 10px 2px;background:#080f1c;font-size:10px;font-weight:700;" class="${cls}">${grade} Grade (${group.length})</div>${rows}`;
+    }).join("");
+
+    const legend = `<div style="padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.06);font-size:9px;color:#4b5563;">
+      Score = Roll%×0.5 + Coherence%×0.4 + Double/Triple bonus · S≥85 · A≥70 · B≥55 · C&lt;55
+    </div>`;
+
+    return legend + sections;
+  }
+
+  /**************************************************************************
    * INSPECT MODAL — Auto-track badge
    **************************************************************************/
 
@@ -4067,6 +4176,7 @@
     else if (state.activeTab==="market")  body.innerHTML = renderMarket();
     else if (state.activeTab==="team")    body.innerHTML = renderTeam();
     else if (state.activeTab==="history") body.innerHTML = renderHistory();
+    else if (state.activeTab==="rating")  body.innerHTML = renderRating();
     else                                  body.innerHTML = renderStats();
 
     if (state.activeTab==="filters") {
@@ -4457,7 +4567,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.42.0',
+    version:     '8.43.0',
     category:    'fighter',
   });
 })();
