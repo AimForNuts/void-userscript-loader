@@ -345,6 +345,41 @@
                 .join(" ") || "";
         }
 
+        function handleSetZone(body) {
+            const zoneId = String(body?.zoneId || "").trim();
+            const monsterId = String(body?.monsterId || "").trim();
+            const tier = String(body?.tier ?? "").trim();
+            const huntAll = body?.huntAll === true;
+
+            if (!zoneId || !monsterId) return;
+
+            state.zoneId = zoneId;
+            state.tier = tier;
+            state.currentMonsterName = formatSlugToDisplay(monsterId);
+            state.huntAll = huntAll;
+            state.setZoneReady = true;
+            state.lastSocketZoneAt = now();
+        }
+
+        function installSetZoneInterceptor() {
+            const originalFetch = window.fetch;
+
+            window.fetch = async function (resource, options) {
+                const url = typeof resource === "string"
+                    ? resource
+                    : (resource instanceof Request ? resource.url : String(resource || ""));
+
+                if (url.includes("/api/party/set-zone") && String(options?.method || "").toUpperCase() === "POST") {
+                    try {
+                        const body = JSON.parse(options?.body || "{}");
+                        handleSetZone(body);
+                    } catch { }
+                }
+
+                return originalFetch.apply(this, arguments);
+            };
+        }
+
         function parseZoneTier(value) {
             const text = String(value || "");
             const match = text.match(/(?:\bD|\bT|Tier\s*)(\d+)/i);
@@ -4182,6 +4217,7 @@
             ...definition,
 
             init(app) {
+                installSetZoneInterceptor();
                 appRef = app;
                 app.ui.registerPanel({
                   id: definition.id,
