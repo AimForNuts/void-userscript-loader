@@ -47,9 +47,26 @@
     const MAX_TIER = 4;
     const TIER_COLORS = ["#888", "#7ec8e3", "#a78bfa", "#f472b6"];
     const STORAGE_KEY = "voididle.runePlanner.counts.v1";
+    const CRAFTING_KEY = "voididle.partyPlannerRunes.crafting.v1";
+    const CRAFTING_AT_KEY = "voididle.partyPlannerRunes.craftingAt.v1";
+    const INVENTORY_KEY = "voididle.partyPlannerRunes.inventory.v1";
+    const INVENTORY_AT_KEY = "voididle.partyPlannerRunes.scannedAt.v1";
+    const DEBUG_CRAFTING_KEY = "voididle.partyPlannerRunes.debugCraftingResponse.v1";
+
+    const MATERIAL_ALIASES = {
+      "Bamboo": "bamboo", "Ironwood": "ironwood", "Spiritwood": "spiritwood", "Ashwood": "ashwood", "Duskwood": "duskwood", "Elderwood": "elderwood",
+      "Bamboo Plank": "bamboo_plank", "Ironwood Plank": "ironwood_plank", "Spiritwood Plank": "spiritwood_plank", "Ashwood Plank": "ashwood_plank", "Duskwood Plank": "duskwood_plank", "Elderwood Plank": "elderwood_plank",
+      "Copper Ore": "copper_ore", "Iron Ore": "iron_ore", "Mithril Ore": "mithril_ore", "Adamantite Ore": "adamantite_ore", "Starmetal Ore": "starmetal_ore", "Celestial Ore": "celestial_ore",
+      "Copper Ingot": "copper_ingot", "Iron Ingot": "iron_ingot", "Mithril Ingot": "mithril_ingot", "Adamantite Ingot": "adamantite_ingot", "Starmetal Ingot": "starmetal_ingot", "Celestial Ingot": "celestial_ingot",
+      "Spirit Herb": "spirit_herb", "Jade Lotus": "jade_lotus", "Phoenix Bloom": "phoenix_bloom", "Moonpetal": "moonpetal", "Voidbloom": "voidbloom", "Dragon Root": "dragon_root",
+      "Herb Extract": "herb_extract", "Lotus Extract": "lotus_extract", "Phoenix Extract": "phoenix_extract", "Moonpetal Extract": "moonpetal_extract", "Voidbloom Extract": "voidbloom_extract", "Dragon Extract": "dragon_extract",
+      "Beast Hide": "beast_hide", "Monster Bone": "monster_bone", "Spirit Essence": "spirit_essence", "Storm Essence": "storm_essence", "Elemental Core": "elemental_core", "Shadow Essence": "shadow_essence", "Dragon Scale": "dragon_scale", "Demon Fang": "demon_fang", "Void Essence": "void_essence", "Celestial Essence": "celestial_essence", "Dao Fragment": "dao_fragment", "Dao Crystal": "dao_crystal",
+    };
 
     const state = {
       counts: createEmptyCounts(),
+      inventory: loadJSON(INVENTORY_KEY, {}),
+      crafting: loadJSON(CRAFTING_KEY, null),
       lastCopiedAt: null,
       lastMessage: "",
       lastMessageColor: "#69f0ae",
@@ -96,8 +113,29 @@
       }
     }
 
+    function loadJSON(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch {
+        return fallback;
+      }
+    }
+
+    function saveJSON(key, value) {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+
     function clean(value) {
       return String(value ?? "").replace(/\s+/g, " ").trim();
+    }
+
+    function norm(value) {
+      return clean(value).toLowerCase().replace(/['']/g, "").replace(/&amp;/g, "&").replace(/[^a-z0-9]+/g, " ").trim();
+    }
+
+    function slug(value) {
+      return norm(value).replace(/\s+/g, "_");
     }
 
     function escapeHtml(value) {
@@ -119,6 +157,63 @@
       });
     }
 
+    function formatDateTime(value) {
+      if (!value) return "never";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
+    function fmt(value) {
+      const number = Number(value || 0);
+      if (!Number.isFinite(number)) return String(value);
+      if (Math.abs(number) >= 1000) return Math.ceil(number).toLocaleString();
+      return String(Math.ceil(number * 100) / 100);
+    }
+
+    function text(el) {
+      return clean(el?.textContent || "");
+    }
+
+    function num(value) {
+      let raw = String(value ?? "").trim().replace(/,/g, "");
+      if (!raw || raw === "-" || raw === "â€”") return 0;
+      const mult = /k$/i.test(raw) ? 1000 : /m$/i.test(raw) ? 1000000 : /b$/i.test(raw) ? 1000000000 : 1;
+      raw = raw.replace(/[kmb]$/i, "");
+      const number = Number(raw);
+      return Number.isFinite(number) ? number * mult : 0;
+    }
+
+    function materialIdFromName(name) {
+      if (!name) return "";
+      if (MATERIAL_ALIASES[name]) return MATERIAL_ALIASES[name];
+      const normalized = norm(name);
+      for (const [label, id] of Object.entries(MATERIAL_ALIASES)) {
+        if (norm(label) === normalized) return id;
+      }
+      return slug(name);
+    }
+
+    function displayName(id) {
+      if (!id) return "";
+      const found = Object.entries(MATERIAL_ALIASES).find(([, aliasId]) => aliasId === id);
+      return found?.[0] || String(id).replace(/_/g, " ").replace(/\b[a-z]/g, (char) => char.toUpperCase());
+    }
+
+    function addTo(map, id, qty) {
+      if (!id || !qty) return;
+      map[id] = (map[id] || 0) + qty;
+    }
+
+    function mergeInto(dst, src, mult = 1) {
+      Object.entries(src || {}).forEach(([id, qty]) => addTo(dst, id, Number(qty || 0) * mult));
+    }
+
     function getCount(runeName, tier) {
       return Number(state.counts[runeName]?.[tier] || 0);
     }
@@ -131,6 +226,198 @@
 
     function changeCount(runeName, tier, delta) {
       setCount(runeName, tier, getCount(runeName, tier) + delta);
+    }
+
+    function getStoredAuthToken() {
+      const stores = [localStorage, sessionStorage];
+      const preferred = ["token", "authToken", "jwt", "accessToken", "voididle_token", "voididle.auth", "auth"];
+      for (const store of stores) {
+        for (const key of preferred) {
+          const token = readPossibleToken(store.getItem(key));
+          if (token) return token;
+        }
+        for (let i = 0; i < store.length; i += 1) {
+          const token = readPossibleToken(store.getItem(store.key(i)));
+          if (token) return token;
+        }
+      }
+      return "";
+    }
+
+    function readPossibleToken(value) {
+      if (!value) return "";
+      const raw = String(value).trim();
+      if (/^Bearer\s+eyJ/.test(raw)) return raw.replace(/^Bearer\s+/i, "");
+      if (/^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(raw)) return raw;
+      try {
+        const parsed = JSON.parse(raw);
+        for (const key of ["token", "authToken", "jwt", "accessToken"]) {
+          const nested = readPossibleToken(parsed?.[key]);
+          if (nested) return nested;
+        }
+      } catch {}
+      return "";
+    }
+
+    function authHeaders() {
+      const token = getStoredAuthToken();
+      if (!token) return null;
+      return { accept: "*/*", "content-type": "application/json", authorization: "Bearer " + token };
+    }
+
+    async function apiGet(url) {
+      const headers = authHeaders();
+      if (!headers) throw new Error("Could not find auth token in localStorage/sessionStorage.");
+      const res = await fetch(url, { method: "GET", credentials: "include", cache: "no-store", headers });
+      if (!res.ok) throw new Error("HTTP " + res.status + " for " + url);
+      const data = await res.json();
+      if (String(url).includes("/api/crafting")) {
+        window.__vilLastCraftingRequest = { url, status: res.status, capturedAt: new Date().toISOString(), response: data };
+        saveJSON(DEBUG_CRAFTING_KEY, window.__vilLastCraftingRequest);
+        console.log("VoidIdle /api/crafting sniffed response:", window.__vilLastCraftingRequest);
+      }
+      return data;
+    }
+
+    function getCraftingRecipes() {
+      const recipes = [];
+      const professions = state.crafting?.professions || {};
+      Object.entries(professions).forEach(([profession, info]) => {
+        (info.recipes || []).forEach((recipe) => recipes.push({ ...recipe, profession: recipe.profession || profession }));
+      });
+      return recipes;
+    }
+
+    function getRuneRecipes() {
+      return getCraftingRecipes().filter((recipe) => recipe?.result?.type === "rune");
+    }
+
+    function getRefineRecipesByResult() {
+      const out = {};
+      getCraftingRecipes().forEach((recipe) => {
+        if (recipe?.result?.type !== "refine" || !recipe.result.materialId) return;
+        const resultId = recipe.result.materialId;
+        const current = out[resultId];
+        const isBaseRefine = String(recipe.id || "").startsWith("refine_");
+        const currentIsBaseRefine = String(current?.id || "").startsWith("refine_");
+        if (!current || (isBaseRefine && !currentIsBaseRefine)) out[resultId] = recipe;
+      });
+      return out;
+    }
+
+    function directMaterials(recipe) {
+      const out = {};
+      Object.entries(recipe?.materials || {}).forEach(([id, qty]) => addTo(out, id, Number(qty || 0)));
+      return out;
+    }
+
+    function expandToRaw(id, qty, refineMap, stack = {}) {
+      if (!id || !qty) return {};
+      if (stack[id]) return { [id]: qty };
+      const recipe = refineMap[id];
+      if (!recipe) return { [id]: qty };
+      const resultQty = Number(recipe.result?.quantity || 1);
+      const crafts = qty / resultQty;
+      const out = {};
+      const nextStack = { ...stack, [id]: true };
+      Object.entries(recipe.materials || {}).forEach(([mat, matQty]) => {
+        mergeInto(out, expandToRaw(mat, Number(matQty || 0) * crafts, refineMap, nextStack));
+      });
+      return out;
+    }
+
+    function rawEquivalent(materials) {
+      const refineMap = getRefineRecipesByResult();
+      const out = {};
+      Object.entries(materials || {}).forEach(([id, qty]) => mergeInto(out, expandToRaw(id, qty, refineMap)));
+      return out;
+    }
+
+    function neededMinusInventory(needs) {
+      const out = {};
+      Object.entries(needs || {}).forEach(([id, qty]) => {
+        const have = Number(state.inventory?.[id] || 0);
+        const missing = Math.max(0, Number(qty || 0) - have);
+        if (missing > 0) out[id] = missing;
+      });
+      return out;
+    }
+
+    function recipeRuneName(recipe) {
+      const result = recipe?.result || {};
+      return clean(result.name || recipe.name || "").replace(/\brune\b/ig, "");
+    }
+
+    function findRuneRecipe(runeName, tier) {
+      const wanted = norm(runeName);
+      const wantedTier = Number(tier);
+      return getRuneRecipes().find((recipe) => {
+        const recipeTier = Number(recipe.tier || recipe.result?.tier || 0);
+        if (recipeTier !== wantedTier) return false;
+        const recipeName = norm(recipeRuneName(recipe));
+        return recipeName === wanted || recipeName.includes(wanted) || norm(recipe.id || "").includes(wanted);
+      }) || null;
+    }
+
+    function selectedRunePlan() {
+      const processed = {};
+      const raw = {};
+      const selections = [];
+      const missingRecipes = [];
+      for (const cat of RUNE_CATEGORIES) {
+        for (const rune of cat.runes) {
+          for (let tier = 1; tier <= MAX_TIER; tier += 1) {
+            const qty = getCount(rune.name, tier);
+            if (qty <= 0) continue;
+            const recipe = findRuneRecipe(rune.name, tier);
+            if (!recipe) {
+              missingRecipes.push(`${rune.name} T${tier}`);
+              continue;
+            }
+            const mats = directMaterials(recipe);
+            mergeInto(processed, mats, qty);
+            mergeInto(raw, rawEquivalent(mats), qty);
+            selections.push({ id: recipe.id, name: recipe.name, tier, qty, materials: mats });
+          }
+        }
+      }
+      return {
+        selections,
+        processed,
+        raw,
+        missingProcessed: neededMinusInventory(processed),
+        missingRaw: neededMinusInventory(raw),
+        missingRecipes,
+      };
+    }
+
+    async function loadCrafting(app) {
+      try {
+        showMessage(app, "Loading crafting data...", "#c9b8ff");
+        state.crafting = await apiGet("/api/crafting");
+        window.__vilLastCraftingResponse = state.crafting;
+        saveJSON(CRAFTING_KEY, state.crafting);
+        localStorage.setItem(CRAFTING_AT_KEY, new Date().toISOString());
+        showMessage(app, `Crafting cached: ${getRuneRecipes().length} rune recipes`, "#69f0ae");
+      } catch (err) {
+        showMessage(app, "Crafting load failed: " + (err.message || err), "#ffa726");
+      }
+    }
+
+    function scanInventory(app) {
+      const out = {};
+      const rows = document.querySelectorAll(".inv-resources .res-row, .res-row.sellable");
+      for (const row of rows) {
+        const name = text(row.querySelector(".res-name"));
+        const qtyEl = row.querySelector(".res-qty");
+        const qty = num(qtyEl?.getAttribute("title") || text(qtyEl));
+        const id = materialIdFromName(name);
+        if (id && Number.isFinite(qty)) out[id] = qty;
+      }
+      state.inventory = out;
+      saveJSON(INVENTORY_KEY, out);
+      localStorage.setItem(INVENTORY_AT_KEY, new Date().toISOString());
+      showMessage(app, `Scanned ${Object.keys(out).length} inventory items`, "#69f0ae");
     }
 
     function getSelectedLines() {
@@ -216,6 +503,71 @@
       state.counts = createEmptyCounts();
       saveCounts();
       showMessage(app, "Reset all rune counts", "#ffa726");
+    }
+
+    function materialRows(map, showHave) {
+      const keys = Object.keys(map || {}).sort((a, b) => displayName(a).localeCompare(displayName(b)));
+      if (!keys.length) {
+        return `<tr><td colspan="${showHave ? 4 : 2}" class="rp-muted">None</td></tr>`;
+      }
+      return keys.map((id) => {
+        const need = Number(map[id] || 0);
+        const have = Number(state.inventory?.[id] || 0);
+        const missing = Math.max(0, need - have);
+        return `
+          <tr>
+            <td>
+              <div class="rp-mat-name">${escapeHtml(displayName(id))}</div>
+              <div class="rp-mat-id">${escapeHtml(id)}</div>
+            </td>
+            <td>${escapeHtml(fmt(need))}</td>
+            ${showHave ? `<td>${escapeHtml(fmt(have))}</td><td>${missing ? `<span class="rp-warn">${escapeHtml(fmt(missing))}</span>` : `<span class="rp-good">0</span>`}</td>` : ""}
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderResourcePanel(plan) {
+      const craftingAt = localStorage.getItem(CRAFTING_AT_KEY);
+      const inventoryAt = localStorage.getItem(INVENTORY_AT_KEY);
+      const hasCrafting = !!state.crafting;
+      const missingText = plan.missingRecipes.length
+        ? `<div class="rp-muted" style="margin-top:7px;">Missing recipes: ${escapeHtml(plan.missingRecipes.join(", "))}</div>`
+        : "";
+
+      return `
+        <div class="rp-summary">
+          <div class="rp-resource-head">
+            <div>
+              <div class="rp-resource-title">Resources Needed</div>
+              <div class="rp-muted">Crafting: ${escapeHtml(formatDateTime(craftingAt))} | Inventory: ${escapeHtml(formatDateTime(inventoryAt))}</div>
+            </div>
+            <div class="rp-actions">
+              <button type="button" class="vim-btn vim-btn-primary" data-rp-load-crafting>Load Crafting</button>
+              <button type="button" class="vim-btn" data-rp-scan-inventory>Scan Inventory</button>
+            </div>
+          </div>
+
+          ${hasCrafting ? "" : `<div class="rp-muted">Load crafting data once so the planner can match selected runes to recipes.</div>`}
+          ${missingText}
+
+          <div class="rp-resource-title" style="margin-top:10px;">Processed Materials</div>
+          <div class="rp-scroll">
+            <table class="rp-table">
+              <thead><tr><th>Material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead>
+              <tbody>${materialRows(plan.processed, true)}</tbody>
+            </table>
+          </div>
+
+          <div class="rp-resource-title" style="margin-top:10px;">Raw Equivalent</div>
+          <div class="rp-scroll">
+            <table class="rp-table">
+              <thead><tr><th>Raw material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead>
+              <tbody>${materialRows(plan.raw, true)}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
     }
 
     function renderStyles() {
@@ -416,6 +768,49 @@
           padding:8px;
           margin-top:8px;
         }
+
+        .rp-resource-head {
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:10px;
+          flex-wrap:wrap;
+          margin-bottom:7px;
+        }
+
+        .rp-resource-title {
+          font-weight:800;
+          color:#e5e7eb;
+        }
+
+        .rp-scroll {
+          max-height:220px;
+          overflow:auto;
+          border:1px solid rgba(255,255,255,0.06);
+          border-radius:8px;
+          margin-top:8px;
+        }
+
+        .rp-mat-name {
+          font-weight:700;
+          color:rgba(229,231,235,0.86);
+        }
+
+        .rp-mat-id {
+          font-size:10px;
+          color:rgba(229,231,235,0.40);
+          margin-top:2px;
+        }
+
+        .rp-good {
+          color:#69f0ae;
+          font-weight:800;
+        }
+
+        .rp-warn {
+          color:#ffa726;
+          font-weight:800;
+        }
       </style>
     `;
     }
@@ -423,6 +818,7 @@
     function render() {
       const selectedLines = getSelectedLines();
       const selectedTotal = getSelectedTotal();
+      const plan = selectedRunePlan();
 
       return `
       ${renderStyles()}
@@ -442,6 +838,8 @@
         </div>
 
         ${RUNE_CATEGORIES.map(renderCategory).join("")}
+
+        ${renderResourcePanel(plan)}
 
         <div class="rp-summary">
           <div><b>Selected:</b> ${selectedTotal} rune${selectedTotal === 1 ? "" : "s"}</div>
@@ -562,6 +960,22 @@
           return;
         }
 
+        const loadCraftingButton = target.closest("[data-rp-load-crafting]");
+        if (loadCraftingButton && panel.contains(loadCraftingButton)) {
+          event.preventDefault();
+          event.stopPropagation();
+          await loadCrafting(app);
+          return;
+        }
+
+        const scanInventoryButton = target.closest("[data-rp-scan-inventory]");
+        if (scanInventoryButton && panel.contains(scanInventoryButton)) {
+          event.preventDefault();
+          event.stopPropagation();
+          scanInventory(app);
+          return;
+        }
+
         const resetButton = target.closest("[data-rp-reset]");
         if (resetButton && panel.contains(resetButton)) {
           event.preventDefault();
@@ -584,7 +998,7 @@
 
       const selectedTotal = getSelectedTotal();
       footer.textContent =
-        `${selectedTotal} selected | Last copied ${formatTime(state.lastCopiedAt)} | Counts saved locally`;
+        `${selectedTotal} selected | Rune recipes ${getRuneRecipes().length} | Inventory ${Object.keys(state.inventory || {}).length} | Last copied ${formatTime(state.lastCopiedAt)}`;
 
       attachEvents(app);
     }
