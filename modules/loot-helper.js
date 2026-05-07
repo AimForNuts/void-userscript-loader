@@ -702,7 +702,7 @@
     marketCtxPlayerId: null,
     marketCtxMwt: 1,
     teamSendStatus: "", teamSendBusy: false,
-    salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(),
+    salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(), salvageExcludeSTier: false,
     historySelectedPlayer: null,
     teamManage: false,
     pinnedItemId: null,
@@ -2388,6 +2388,10 @@
         <button class="sg-mode-btn" data-sg-salvage-selected ${(!selectedSalvageCount || state.salvageBusy) ? "disabled" : ""}
           style="${(!selectedSalvageCount || state.salvageBusy) ? "opacity:.45;cursor:not-allowed;" : "color:#fca5a5;border-color:#ef4444;background:rgba(239,68,68,.08);"}"
           title="Salvage gear items selected by the Highlight buttons, plus any checked items">💾 ${state.salvageBusy ? "Salvaging…" : `Salvage Highlighted (${selectedSalvageCount})`}</button>
+        <label style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#64748b;cursor:pointer;margin-left:4px;" title="Skip S-rated items when salvaging">
+          <input type="checkbox" id="sgSalvageExcludeS" ${state.salvageExcludeSTier ? "checked" : ""} style="width:11px;height:11px;accent-color:#facc15;cursor:pointer;">
+          Skip S
+        </label>
         ${state.salvageStatus ? `<span style="font-size:10px;line-height:1.25;color:${state.salvageStatus.startsWith("Salvaged") ? "#4ade80" : state.salvageStatus.startsWith("Salvaging") ? "#93c5fd" : "#fca5a5"};">${esc(state.salvageStatus)}</span>` : ""}
       </div>`;
     }
@@ -3000,7 +3004,14 @@
     const byId = new Map();
     for (const item of getHighlightedSalvageItems()) byId.set(String(item.id), item);
     for (const item of getSelectedSalvageItems())    byId.set(String(item.id), item);
-    return [...byId.values()];
+    let result = [...byId.values()];
+    if (state.salvageExcludeSTier) {
+      result = result.filter(item => {
+        const g = calcItemIntrinsicGrade(item);
+        return !g || g.grade !== "S";
+      });
+    }
+    return result;
   }
 
   function rememberSalvageEndpoint(url, bodyOrKeys = null, method = "POST") {
@@ -4384,6 +4395,11 @@
         });
       }
 
+      body.querySelector("#sgSalvageExcludeS")?.addEventListener("change", e => {
+        state.salvageExcludeSTier = e.target.checked;
+        render();
+      });
+
       body.querySelectorAll("[data-sg-pin-item]").forEach(btn => {
         btn.addEventListener("click", e => {
           e.stopPropagation();
@@ -4611,7 +4627,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.44.0',
+    version:     '8.45.0',
     category:    'fighter',
   });
 })();
