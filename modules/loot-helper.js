@@ -2098,9 +2098,27 @@
             (1 + ${state.def} DEF / 1000)${state.allStats ? ` · <b>${state.allStats}%</b> All Stats` : ""}
           </div>
         </div>
-        ${state.manaRegen != null ? `<div class="sg-row" style="margin-top:4px;"><span class="sg-key">Mana /10s</span><span class="sg-val c-blue">${fmtDec(state.manaRegen)}</span></div>` : ""}
-        ${state.maxManaStat != null ? `<div class="sg-row"><span class="sg-key">Max Mana</span><span class="sg-val c-blue">${fmt(state.maxManaStat)}</span></div>` : ""}
       </div>`;
+    }
+
+    {
+      const enabledSkills = state.skills.filter(s => s.enabled);
+      if (enabledSkills.length > 0 && state.manaRegen != null) {
+        const totalMpMin = enabledSkills.reduce((sum, sk) => sum + sk.cost * 60 / sk.intervalS, 0);
+        const regenMpMin = state.manaRegen * 6;
+        const surplus    = regenMpMin - totalMpMin;
+        const col        = surplus >= 0 ? "#60a5fa" : "#f87171";
+        const sign       = surplus >= 0 ? "+" : "";
+        html += `<div class="sg-sec">
+          <div class="sg-lbl">Mana Sustainability</div>
+          <div class="sg-dps-box" style="background:#0d1a2e;">
+            <div class="sg-dps-num" style="color:${col};">${sign}${Math.round(surplus)}</div>
+            <div class="sg-dps-calc">
+              MP/min surplus · <b>${Math.round(regenMpMin)}</b> regen − <b>${Math.round(totalMpMin)}</b> skills
+            </div>
+          </div>
+        </div>`;
+      }
     }
 
     if (state.charViewOpen) {
@@ -2128,9 +2146,6 @@
         if (!enabledSkills.length) return '';
         const totalMpMin = enabledSkills.reduce((s, sk) => s + sk.cost * 60 / sk.intervalS, 0);
         const regenMpMin = (state.manaRegen ?? 0) * 6;
-        const surplus    = regenMpMin - totalMpMin;
-        const surplusCol = surplus >= 0 ? "#60a5fa" : "#f87171";
-        const surplusSign = surplus >= 0 ? "+" : "";
         return `<div class="sg-sec">
           <div class="sg-lbl">Mana Use</div>
           ${enabledSkills.map(sk => {
@@ -2142,9 +2157,6 @@
           </div>
           <div class="sg-row">
             <span class="sg-key">Regen (6t/min)</span><span class="sg-val c-blue">${Math.round(regenMpMin)} MP/min</span>
-          </div>
-          <div class="sg-row">
-            <span class="sg-key">Surplus</span><span style="color:${surplusCol};font-weight:700">${surplusSign}${Math.round(surplus)} MP/min</span>
           </div>
         </div>`;
       })()}
@@ -4411,7 +4423,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.36.0',
+    version:     '8.37.0',
     category:    'fighter',
   });
 })();
