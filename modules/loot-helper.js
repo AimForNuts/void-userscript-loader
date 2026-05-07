@@ -1010,34 +1010,18 @@
       }
     }
 
-    // ∆ Sustainability: regen change (direct + pool%) + CDR-driven consumption change
+    // ∆ Sustainability — shared formula with bag panel
     let manaDeltaHtml = "";
     {
-      const mregenDelta = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
       const manaDelta   = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
+      const mregenDelta = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
       const cdrDelta    = (ttStats.cdr       ?? 0) - (eqBaseStats.cdr       ?? 0);
-      const poolFrac    = poolRegenFraction();
-      const effectiveMregenDelta = mregenDelta + manaDelta * poolFrac;
-
-      // CDR change affects how quickly skills cycle → changes mana consumption
-      const currentCDR = sc.allStats != null ? (state.cdr ?? 0) : 0; // only if char screen known
-      const enabledSkills = state.skills.filter(s => s.enabled);
-      let deltaMpMin = 0;
-      if (cdrDelta !== 0 && enabledSkills.length > 0) {
-        const oldMult = 1 / Math.max(0.01, 1 - currentCDR / 100);
-        const newMult = 1 / Math.max(0.01, 1 - (currentCDR + cdrDelta) / 100);
-        const baseTotal = enabledSkills.reduce((sum, sk) => sum + sk.cost * 60 / sk.intervalS * oldMult, 0);
-        const newTotal  = enabledSkills.reduce((sum, sk) => sum + sk.cost * 60 / sk.intervalS * newMult, 0);
-        deltaMpMin = newTotal - baseTotal; // positive = more mana used = hurts sustain
-      }
-
-      const score = effectiveMregenDelta * 6 - deltaMpMin;
+      const score = calcSustainScore(manaDelta, mregenDelta, cdrDelta);
       if (Math.abs(score) >= 1) {
         const sign = score >= 0 ? "+" : "";
         const col  = score > 0 ? "#60a5fa" : "#f87171";
         const SEP  = `style="padding:3px 0;border-top:1px solid rgba(255,255,255,.06);margin-top:4px"`;
-        const tip  = `∆ Sustain = (ΔRegen ${mregenDelta >= 0 ? "+" : ""}${fmtDec(mregenDelta)} + ΔPool ${manaDelta >= 0 ? "+" : ""}${manaDelta}×${fmtDec(poolFrac * 100, 2)}%)×6${cdrDelta ? ` − ΔSkillCost ${Math.round(deltaMpMin) >= 0 ? "+" : ""}${Math.round(deltaMpMin)} (CDR ${cdrDelta >= 0 ? "+" : ""}${cdrDelta}%)` : ""}`;
-        manaDeltaHtml = `<div class="sg-row" ${SEP} title="${esc(tip)}"><span class="sg-key">∆ Sustain</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
+        manaDeltaHtml = `<div class="sg-row" ${SEP} title="∆ MSM = (ΔRegen + ΔPool×poolFrac)×6 − CDR consumption (MP/min)"><span class="sg-key">∆ MSM</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
       }
     }
 
@@ -2143,7 +2127,7 @@
         const col        = surplus >= 0 ? "#60a5fa" : "#f87171";
         const sign       = surplus >= 0 ? "+" : "";
         html += `<div class="sg-sec">
-          <div class="sg-lbl">Mana Sustainability</div>
+          <div class="sg-lbl">MSM (Mana Sustain/min)</div>
           <div class="sg-dps-box" style="background:#0d1a2e;">
             <div class="sg-dps-num" style="color:${col};">${sign}${Math.round(surplus)}</div>
             <div class="sg-dps-calc">
@@ -2737,38 +2721,53 @@
     </div>`;
   }
 
-  function calcItemManaDelta(item, ctx = state) {
+  function calcItemManaDelta(item) {
     if (!item.eqBaseStats || !item.ownBaseStats) return null;
-    const curAllStats   = ctx.allStats ?? 0;
-    const allStatsDelta = (item.ownBaseStats.allStats  ?? 0) - (item.eqBaseStats.allStats  ?? 0);
-    const manaDelta     = (item.ownBaseStats.mana      ?? 0) - (item.eqBaseStats.mana      ?? 0);
-    const mregenDelta   = (item.ownBaseStats.manaRegen ?? 0) - (item.eqBaseStats.manaRegen ?? 0);
-    if (manaDelta === 0 && mregenDelta === 0 && allStatsDelta === 0) return null;
-    const baseMana   = (ctx.maxManaStat ?? 0) / (1 + curAllStats / 100);
-    const baseMRegen = (ctx.manaRegen  ?? 0)  / (1 + curAllStats / 100);
-    const newMana    = (baseMana   + manaDelta)   * (1 + (curAllStats + allStatsDelta) / 100);
-    const newMRegen  = (baseMRegen + mregenDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-    const dMana   = newMana   - (ctx.maxManaStat ?? 0);
-    const dMRegen = newMRegen - (ctx.manaRegen   ?? 0);
-    if (Math.abs(dMana) < 0.5 && Math.abs(dMRegen) < 0.05) return null;
-    return { dMana, dMRegen };
+    const manaDelta   = (item.ownBaseStats.mana      ?? 0) - (item.eqBaseStats.mana      ?? 0);
+    const mregenDelta = (item.ownBaseStats.manaRegen ?? 0) - (item.eqBaseStats.manaRegen ?? 0);
+    const cdrDelta    = (item.ownBaseStats.cdr       ?? 0) - (item.eqBaseStats.cdr       ?? 0);
+    if (manaDelta === 0 && mregenDelta === 0 && cdrDelta === 0) return null;
+    return { manaDelta, mregenDelta, cdrDelta };
+  }
+
+  // Shared sustainability score: (ΔRegen + ΔPool×poolFrac)×6 − CDR-driven consumption change
+  function calcSustainScore(manaDelta, mregenDelta, cdrDelta) {
+    const poolFrac = poolRegenFraction();
+    const effectiveMregenDelta = mregenDelta + manaDelta * poolFrac;
+    let deltaMpMin = 0;
+    const enabledSkills = state.skills.filter(s => s.enabled);
+    if (cdrDelta !== 0 && enabledSkills.length > 0) {
+      const cur    = state.cdr ?? 0;
+      const oldMult = 1 / Math.max(0.01, 1 - cur / 100);
+      const newMult = 1 / Math.max(0.01, 1 - (cur + cdrDelta) / 100);
+      const oldTotal = enabledSkills.reduce((s, sk) => s + sk.cost * 60 / sk.intervalS * oldMult, 0);
+      const newTotal = enabledSkills.reduce((s, sk) => s + sk.cost * 60 / sk.intervalS * newMult, 0);
+      deltaMpMin = newTotal - oldTotal;
+    }
+    return effectiveMregenDelta * 6 - deltaMpMin;
   }
 
   function _manaDeltaHtml(item) {
     const res = calcItemManaDelta(item);
     if (!res) return "";
-    const { dMana, dMRegen } = res;
+    const { manaDelta, mregenDelta, cdrDelta } = res;
     const SEP = `style="padding:2px 0;border-top:1px solid rgba(255,255,255,.06);margin-top:3px"`;
     let html = "";
-    if (Math.abs(dMana) >= 1) {
-      const sign = dMana >= 0 ? "+" : "";
-      const col  = dMana > 0 ? "#60a5fa" : "#f87171";
-      html += `<div class="sg-row" ${SEP}><span class="sg-key">∆ Mana</span><span style="color:${col};font-weight:700">${sign}${Math.round(dMana)}</span></div>`;
+    if (Math.abs(manaDelta) >= 1) {
+      const sign = manaDelta >= 0 ? "+" : "";
+      const col  = manaDelta > 0 ? "#60a5fa" : "#f87171";
+      html += `<div class="sg-row" ${SEP}><span class="sg-key">∆ Mana</span><span style="color:${col};font-weight:700">${sign}${Math.round(manaDelta)}</span></div>`;
     }
-    if (Math.abs(dMRegen) >= 0.05) {
-      const sign = dMRegen >= 0 ? "+" : "";
-      const col  = dMRegen > 0 ? "#60a5fa" : "#f87171";
-      html += `<div class="sg-row" ${SEP}><span class="sg-key">∆ Mana/t</span><span style="color:${col};font-weight:700">${sign}${dMRegen.toFixed(1)}</span></div>`;
+    if (Math.abs(mregenDelta) >= 0.05) {
+      const sign = mregenDelta >= 0 ? "+" : "";
+      const col  = mregenDelta > 0 ? "#60a5fa" : "#f87171";
+      html += `<div class="sg-row" ${SEP}><span class="sg-key">∆ Mana/10s</span><span style="color:${col};font-weight:700">${sign}${mregenDelta.toFixed(1)}</span></div>`;
+    }
+    const sustain = calcSustainScore(manaDelta, mregenDelta, cdrDelta);
+    if (Math.abs(sustain) >= 1) {
+      const sign = sustain >= 0 ? "+" : "";
+      const col  = sustain > 0 ? "#60a5fa" : "#f87171";
+      html += `<div class="sg-row" ${SEP}><span class="sg-key">∆ MSM</span><span style="color:${col};font-weight:700">${sign}${Math.round(sustain)}</span></div>`;
     }
     return html;
   }
@@ -2795,13 +2794,13 @@
       lines.push(`<span style="color:${col};white-space:nowrap;">EHP ${sign}${Math.round(survDelta)} <span style="opacity:.55;font-size:9px;">(${sign}${pct.toFixed(1)}%)</span></span>`);
     }
 
-    const manaRes = calcItemManaDelta(item, ctx);
+    const manaRes = calcItemManaDelta(item);
     if (manaRes) {
-      const score = manaRes.dMana + manaRes.dMRegen * 3;
+      const score = calcSustainScore(manaRes.manaDelta, manaRes.mregenDelta, manaRes.cdrDelta);
       if (Math.abs(score) >= 1) {
         const sign = score >= 0 ? "+" : "";
         const col  = score > 0 ? "#60a5fa" : "#f87171";
-        lines.push(`<span style="color:${col};white-space:nowrap;" title="Mana Score = ΔPool + ΔRegen×3 (regen ticks every 10s)">Mana ${sign}${Math.round(score)}</span>`);
+        lines.push(`<span style="color:${col};white-space:nowrap;" title="∆ MSM = Mana Sustain/min change">MSM ${sign}${Math.round(score)}</span>`);
       }
     }
 
@@ -4458,7 +4457,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.40.0',
+    version:     '8.42.0',
     category:    'fighter',
   });
 })();
