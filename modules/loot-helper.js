@@ -688,7 +688,7 @@
     str:null, strDerived:null, int:null, intDerived:null,
     atkPhys:null, atkMag:null, critChance:null, critDmg:null,
     hitChance:null, atkSpeed:null, def:null, maxHpStat:null, maxManaStat:null,
-    healPower:null, lifesteal:null, manaRegen:null,
+    healPower:null, lifesteal:null, manaRegen:null, cdr:null,
     xpBonus:null, goldBonus:null, dropRate:null, allStats:null,
     kills:null, zonesVisited:null,
     skills:[],
@@ -1010,22 +1010,34 @@
       }
     }
 
-    // ∆ Sustainability: direct regen change + indirect change via pool-based % recovery
+    // ∆ Sustainability: regen change (direct + pool%) + CDR-driven consumption change
     let manaDeltaHtml = "";
     {
       const mregenDelta = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
       const manaDelta   = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
+      const cdrDelta    = (ttStats.cdr       ?? 0) - (eqBaseStats.cdr       ?? 0);
       const poolFrac    = poolRegenFraction();
       const effectiveMregenDelta = mregenDelta + manaDelta * poolFrac;
-      if (Math.abs(effectiveMregenDelta) >= 0.01) {
-        const score = effectiveMregenDelta * 6;
-        if (Math.abs(score) >= 1) {
-          const sign = score >= 0 ? "+" : "";
-          const col  = score > 0 ? "#60a5fa" : "#f87171";
-          const SEP  = `style="padding:3px 0;border-top:1px solid rgba(255,255,255,.06);margin-top:4px"`;
-          const tip  = `∆ Sustain = (ΔRegen ${mregenDelta >= 0 ? "+" : ""}${fmtDec(mregenDelta)} + ΔPool ${manaDelta >= 0 ? "+" : ""}${manaDelta} × ${fmtDec(poolFrac * 100, 2)}%) × 6`;
-          manaDeltaHtml = `<div class="sg-row" ${SEP} title="${esc(tip)}"><span class="sg-key">∆ Sustain</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
-        }
+
+      // CDR change affects how quickly skills cycle → changes mana consumption
+      const currentCDR = sc.allStats != null ? (state.cdr ?? 0) : 0; // only if char screen known
+      const enabledSkills = state.skills.filter(s => s.enabled);
+      let deltaMpMin = 0;
+      if (cdrDelta !== 0 && enabledSkills.length > 0) {
+        const oldMult = 1 / Math.max(0.01, 1 - currentCDR / 100);
+        const newMult = 1 / Math.max(0.01, 1 - (currentCDR + cdrDelta) / 100);
+        const baseTotal = enabledSkills.reduce((sum, sk) => sum + sk.cost * 60 / sk.intervalS * oldMult, 0);
+        const newTotal  = enabledSkills.reduce((sum, sk) => sum + sk.cost * 60 / sk.intervalS * newMult, 0);
+        deltaMpMin = newTotal - baseTotal; // positive = more mana used = hurts sustain
+      }
+
+      const score = effectiveMregenDelta * 6 - deltaMpMin;
+      if (Math.abs(score) >= 1) {
+        const sign = score >= 0 ? "+" : "";
+        const col  = score > 0 ? "#60a5fa" : "#f87171";
+        const SEP  = `style="padding:3px 0;border-top:1px solid rgba(255,255,255,.06);margin-top:4px"`;
+        const tip  = `∆ Sustain = (ΔRegen ${mregenDelta >= 0 ? "+" : ""}${fmtDec(mregenDelta)} + ΔPool ${manaDelta >= 0 ? "+" : ""}${manaDelta}×${fmtDec(poolFrac * 100, 2)}%)×6${cdrDelta ? ` − ΔSkillCost ${Math.round(deltaMpMin) >= 0 ? "+" : ""}${Math.round(deltaMpMin)} (CDR ${cdrDelta >= 0 ? "+" : ""}${cdrDelta}%)` : ""}`;
+        manaDeltaHtml = `<div class="sg-row" ${SEP} title="${esc(tip)}"><span class="sg-key">∆ Sustain</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
       }
     }
 
@@ -1267,8 +1279,9 @@
         case "Max Mana":        state.maxManaStat= val; break;
         case "Healing Power":   state.healPower  = val; break;
         case "Lifesteal":       state.lifesteal  = val; break;
-        case "Mana Regen":      state.manaRegen  = val; break;
-        case "XP Bonus":        state.xpBonus    = val; break;
+        case "Mana Regen":             state.manaRegen  = val; break;
+        case "Cooldown Reduction":     state.cdr        = val; break;
+        case "XP Bonus":               state.xpBonus    = val; break;
         case "Gold Bonus":      state.goldBonus  = val; break;
         case "Drop Rate":       state.dropRate   = val; break;
         case "All Stats":       state.allStats   = val; break;
@@ -2122,7 +2135,9 @@
     {
       const enabledSkills = state.skills.filter(s => s.enabled);
       if (enabledSkills.length > 0 && state.manaRegen != null) {
-        const totalMpMin = enabledSkills.reduce((sum, sk) => sum + sk.cost * 60 / sk.intervalS, 0);
+        const cdr        = state.cdr ?? 0;
+        const cdrMult    = 1 / Math.max(0.01, 1 - cdr / 100);
+        const totalMpMin = enabledSkills.reduce((sum, sk) => sum + sk.cost * 60 / sk.intervalS * cdrMult, 0);
         const regenMpMin = state.manaRegen * 6;
         const surplus    = regenMpMin - totalMpMin;
         const col        = surplus >= 0 ? "#60a5fa" : "#f87171";
@@ -2132,7 +2147,7 @@
           <div class="sg-dps-box" style="background:#0d1a2e;">
             <div class="sg-dps-num" style="color:${col};">${sign}${Math.round(surplus)}</div>
             <div class="sg-dps-calc">
-              MP/min surplus · <b>${Math.round(regenMpMin)}</b> regen − <b>${Math.round(totalMpMin)}</b> skills
+              MP/min surplus · <b>${Math.round(regenMpMin)}</b> regen − <b>${Math.round(totalMpMin)}</b> skills${cdr > 0 ? ` (${cdr}% CDR)` : ""}
             </div>
           </div>
         </div>`;
@@ -2162,12 +2177,14 @@
       ${(() => {
         const enabledSkills = state.skills.filter(s => s.enabled);
         if (!enabledSkills.length) return '';
-        const totalMpMin = enabledSkills.reduce((s, sk) => s + sk.cost * 60 / sk.intervalS, 0);
+        const cdr        = state.cdr ?? 0;
+        const cdrMult    = 1 / Math.max(0.01, 1 - cdr / 100);
+        const totalMpMin = enabledSkills.reduce((s, sk) => s + sk.cost * 60 / sk.intervalS * cdrMult, 0);
         const regenMpMin = (state.manaRegen ?? 0) * 6;
         return `<div class="sg-sec">
-          <div class="sg-lbl">Mana Use</div>
+          <div class="sg-lbl">Mana Use${cdr > 0 ? ` (${cdr}% CDR)` : ""}</div>
           ${enabledSkills.map(sk => {
-            const mpm = Math.round(sk.cost * 60 / sk.intervalS);
+            const mpm = Math.round(sk.cost * 60 / sk.intervalS * cdrMult);
             return `<div class="sg-row"><span class="sg-key">${esc(sk.name)}</span><span class="sg-val c-blue">${mpm}/min</span></div>`;
           }).join('')}
           <div class="sg-row" style="border-top:1px solid rgba(255,255,255,.06);margin-top:4px;padding-top:4px">
@@ -4441,7 +4458,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.39.0',
+    version:     '8.40.0',
     category:    'fighter',
   });
 })();
