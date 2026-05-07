@@ -50,6 +50,7 @@
     const TAB_KEY = "voididle.runePlanner.tab.v1";
     const PARTY_KEY = "voididle.runePlanner.party.v1";
     const PARTY_TIER_KEY = "voididle.runePlanner.partyTier.v1";
+    const PARTY_COLLAPSED_KEY = "voididle.runePlanner.partyCollapsed.v1";
     const CRAFTING_KEY = "voididle.partyPlannerRunes.crafting.v1";
     const CRAFTING_AT_KEY = "voididle.partyPlannerRunes.craftingAt.v1";
     const INVENTORY_KEY = "voididle.partyPlannerRunes.inventory.v1";
@@ -89,6 +90,7 @@
       counts: createEmptyCounts(),
       party: loadPartySettings(),
       partyTier: Math.min(MAX_TIER, Math.max(1, Number(localStorage.getItem(PARTY_TIER_KEY) || 1))),
+      partyCollapsed: loadJSON(PARTY_COLLAPSED_KEY, { 1: true, 2: true, 3: true }),
       inventory: loadJSON(INVENTORY_KEY, {}),
       crafting: loadJSON(CRAFTING_KEY, null),
       lastCopiedAt: null,
@@ -890,6 +892,32 @@
           background:rgba(0,0,0,0.22);
         }
 
+        .rp-player-main {
+          display:flex;
+          align-items:center;
+          gap:8px;
+          min-width:0;
+          flex:1;
+        }
+
+        .rp-collapse {
+          width:26px;
+          height:26px;
+          border-radius:7px;
+          border:1px solid rgba(255,255,255,0.12);
+          background:rgba(255,255,255,0.055);
+          color:#e5e7eb;
+          font-weight:900;
+          cursor:pointer;
+          line-height:1;
+          flex:0 0 auto;
+        }
+
+        .rp-player-meta {
+          color:rgba(229,231,235,0.50);
+          white-space:nowrap;
+        }
+
         .rp-player-name {
           max-width:190px;
         }
@@ -1063,18 +1091,25 @@
     }
 
     function renderPlayerCard(player, playerIndex) {
+      const isCollapsed = !!state.partyCollapsed?.[playerIndex];
+      const categoryBody = isCollapsed
+        ? ""
+        : RUNE_CATEGORIES.map((cat) => renderPlayerCategory(player, playerIndex, cat)).join("");
       return `
         <div class="rp-section">
           <div class="rp-player-head">
-            <input
-              class="rp-input rp-player-name"
-              data-rp-party-name="${playerIndex}"
-              value="${escapeHtml(player.name)}"
-              aria-label="Player ${playerIndex + 1} name"
-            >
-            <span class="rp-muted">Player ${playerIndex + 1}</span>
+            <div class="rp-player-main">
+              <button type="button" class="rp-collapse" data-rp-player-collapse="${playerIndex}" title="${isCollapsed ? "Expand" : "Collapse"} ${escapeHtml(player.name)}">${isCollapsed ? "+" : "−"}</button>
+              <input
+                class="rp-input rp-player-name"
+                data-rp-party-name="${playerIndex}"
+                value="${escapeHtml(player.name)}"
+                aria-label="Player ${playerIndex + 1} name"
+              >
+            </div>
+            <span class="rp-player-meta">Player ${playerIndex + 1}</span>
           </div>
-          ${RUNE_CATEGORIES.map((cat) => renderPlayerCategory(player, playerIndex, cat)).join("")}
+          ${categoryBody}
         </div>
       `;
     }
@@ -1212,6 +1247,21 @@
           event.stopPropagation();
           state.tab = tabButton.dataset.rpTab === "party" ? "party" : "manual";
           localStorage.setItem(TAB_KEY, state.tab);
+          renderIntoPanel(app);
+          return;
+        }
+
+        const collapseButton = target.closest("[data-rp-player-collapse]");
+        if (collapseButton && panel.contains(collapseButton)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const playerIndex = Number(collapseButton.dataset.rpPlayerCollapse);
+          if (!Number.isFinite(playerIndex)) return;
+          const next = { ...(state.partyCollapsed || {}) };
+          if (next[playerIndex]) delete next[playerIndex];
+          else next[playerIndex] = true;
+          state.partyCollapsed = next;
+          saveJSON(PARTY_COLLAPSED_KEY, next);
           renderIntoPanel(app);
           return;
         }
