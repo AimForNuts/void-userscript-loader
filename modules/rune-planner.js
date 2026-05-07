@@ -609,12 +609,11 @@
           for (let tier = 1; tier <= MAX_TIER; tier += 1) {
             const count = getCount(rune.name, tier, counts);
             if (count <= 0) continue;
-            const priorParts = [];
-            for (let priorTier = 1; priorTier < tier; priorTier += 1) {
-              priorParts.push(`t${priorTier} x ${count}`);
+            const tierParts = [];
+            for (let craftTier = 1; craftTier <= tier; craftTier += 1) {
+              tierParts.push(`t${craftTier} x ${count}`);
             }
-            const priorText = priorParts.length ? ` (also craft/share ${priorParts.join(" + ")})` : "";
-            catLines.push(`${rune.name} rune t${tier} x ${count}${priorText}`);
+            catLines.push(`${rune.name} rune ${tierParts.join(" | ")}`);
           }
         }
         if (catLines.length) {
