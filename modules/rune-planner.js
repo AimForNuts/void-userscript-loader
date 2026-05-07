@@ -85,6 +85,40 @@
       "Weapon Runes": ["Weapon", "Off Hand"],
     };
 
+    const RARITY_SLOT_COUNT = {
+      common: 1,
+      rare: 2,
+      epic: 3,
+      legendary: 4,
+      mythic: 5,
+    };
+
+    const EQUIPPED_SLOT_TO_PARTY_ITEM = {
+      shoulders: { category: "Armor Runes", item: "Shoulders" },
+      shoulder: { category: "Armor Runes", item: "Shoulders" },
+      helmet: { category: "Armor Runes", item: "Helmet" },
+      helm: { category: "Armor Runes", item: "Helmet" },
+      chest: { category: "Armor Runes", item: "Chest" },
+      hands: { category: "Armor Runes", item: "Hands" },
+      hand: { category: "Armor Runes", item: "Hands" },
+      gloves: { category: "Armor Runes", item: "Hands" },
+      legs: { category: "Armor Runes", item: "Legs" },
+      leg: { category: "Armor Runes", item: "Legs" },
+      boots: { category: "Armor Runes", item: "Boots" },
+      boot: { category: "Armor Runes", item: "Boots" },
+      amulet: { category: "Accessories Runes", item: "Amulet" },
+      ring1: { category: "Accessories Runes", item: "Ring 1" },
+      ring_1: { category: "Accessories Runes", item: "Ring 1" },
+      ring2: { category: "Accessories Runes", item: "Ring 2" },
+      ring_2: { category: "Accessories Runes", item: "Ring 2" },
+      weapon: { category: "Weapon Runes", item: "Weapon" },
+      main_hand: { category: "Weapon Runes", item: "Weapon" },
+      mainhand: { category: "Weapon Runes", item: "Weapon" },
+      off_hand: { category: "Weapon Runes", item: "Off Hand" },
+      offhand: { category: "Weapon Runes", item: "Off Hand" },
+      shield: { category: "Weapon Runes", item: "Off Hand" },
+    };
+
     const state = {
       tab: localStorage.getItem(TAB_KEY) === "party" ? "party" : "manual",
       counts: createEmptyCounts(),
@@ -467,6 +501,67 @@
         showMessage(app, `Crafting cached: ${getRuneRecipes().length} rune recipes`, "#69f0ae");
       } catch (err) {
         showMessage(app, "Crafting load failed: " + (err.message || err), "#ffa726");
+      }
+    }
+
+    function resetPlayerSlots(player) {
+      for (const cat of RUNE_CATEGORIES) {
+        if (!player.slots[cat.label]) player.slots[cat.label] = {};
+        for (const item of PARTY_ITEMS[cat.label] || []) {
+          player.slots[cat.label][item] = 0;
+        }
+      }
+    }
+
+    function slotCountFromRarity(rarity) {
+      return RARITY_SLOT_COUNT[norm(rarity).replace(/\s+/g, "_")] || 0;
+    }
+
+    function applyEquippedSlotsToPlayer(player, equipped) {
+      resetPlayerSlots(player);
+      for (const item of equipped || []) {
+        const slotKey = String(item?.equippedSlot || "").trim().toLowerCase();
+        const match = EQUIPPED_SLOT_TO_PARTY_ITEM[slotKey];
+        const slotCount = slotCountFromRarity(item?.rarity);
+        if (!match || slotCount <= 0) continue;
+        if (!player.slots[match.category]) player.slots[match.category] = {};
+        player.slots[match.category][match.item] = Math.max(Number(player.slots[match.category][match.item] || 0), slotCount);
+      }
+    }
+
+    async function loadPartySlots(app) {
+      try {
+        showMessage(app, "Loading party gear slots...", "#c9b8ff");
+        const party = await apiGet("/api/party");
+        const members = (party?.members || []).slice(0, 4);
+        if (!members.length) {
+          showMessage(app, "No party members found", "#ffa726");
+          return;
+        }
+        const inspected = await Promise.all(members.map(async (member) => {
+          const playerId = member.player_id || member.playerId || member.id;
+          if (!playerId) return { member, error: "Missing player id" };
+          try {
+            const data = await apiGet("/api/player/" + encodeURIComponent(playerId) + "/inspect");
+            return { member, data };
+          } catch (err) {
+            return { member, error: err.message || String(err) };
+          }
+        }));
+
+        let loaded = 0;
+        inspected.forEach((entry, index) => {
+          if (!entry.data || !state.party.players[index]) return;
+          const player = state.party.players[index];
+          player.name = clean(entry.data.username || entry.member?.username || player.name || `Player ${index + 1}`);
+          applyEquippedSlotsToPlayer(player, entry.data.equipped || []);
+          loaded += 1;
+        });
+
+        savePartySettings();
+        showMessage(app, `Loaded gear slots for ${loaded} player${loaded === 1 ? "" : "s"}`, loaded ? "#69f0ae" : "#ffa726");
+      } catch (err) {
+        showMessage(app, "Party slot load failed: " + (err.message || err), "#ffa726");
       }
     }
 
@@ -1112,6 +1207,7 @@
               <div class="rp-resource-title">Party Priorities</div>
               <div class="rp-muted">Each item uses priorities up to its slot count. Priority 0 skips that rune.</div>
             </div>
+            <button type="button" class="vim-btn vim-btn-primary" data-rp-load-party-slots>Load Party Slots</button>
             <label class="rp-field" style="min-width:110px;">
               <span>Rune tier</span>
               <select class="rp-select" data-rp-party-tier>${tierOptions}</select>
@@ -1329,6 +1425,14 @@
           event.preventDefault();
           event.stopPropagation();
           await loadCrafting(app);
+          return;
+        }
+
+        const loadPartySlotsButton = target.closest("[data-rp-load-party-slots]");
+        if (loadPartySlotsButton && panel.contains(loadPartySlotsButton)) {
+          event.preventDefault();
+          event.stopPropagation();
+          await loadPartySlots(app);
           return;
         }
 
