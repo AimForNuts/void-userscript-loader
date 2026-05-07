@@ -697,6 +697,7 @@
     bagItems:[], bagItemsRaw:[], bagVisible:false,
     catOpen:{ top:true, up:true, neu:false, sal:false },
     highlightCats: new Set(),
+    highlightGrades: new Set(),
     marketItems: [], marketRawData: [], marketVisible: false, marketHideFuture: false,
     marketCtxPlayerId: null,
     marketCtxMwt: 1,
@@ -1063,16 +1064,23 @@
     _tooltipObs.observe(document.body, { childList: true, subtree: true });
   }
 
-  const CAT_HL_CLASS = { top:"sg-hl-top", up:"sg-hl-up", neu:"sg-hl-neu", sal:"sg-hl-sal" };
+  const CAT_HL_CLASS   = { top:"sg-hl-top", up:"sg-hl-up", neu:"sg-hl-neu", sal:"sg-hl-sal" };
+  const GRADE_HL_CLASS = { S:"sg-hl-grade-s", A:"sg-hl-grade-a", B:"sg-hl-grade-b", C:"sg-hl-grade-c" };
 
   function applyBagHighlights() {
-    [...Object.values(CAT_HL_CLASS), "sg-hl-pin"].forEach(cls =>
+    [...Object.values(CAT_HL_CLASS), ...Object.values(GRADE_HL_CLASS), "sg-hl-pin"].forEach(cls =>
       document.querySelectorAll("."+cls).forEach(el => el.classList.remove(cls))
     );
 
     const hlMap = new Map();
     for (const item of state.bagItems) {
-      const cls = state.highlightCats.has(item.cat) ? CAT_HL_CLASS[item.cat] : null;
+      const catCls   = state.highlightCats.has(item.cat) ? CAT_HL_CLASS[item.cat] : null;
+      let gradeCls = null;
+      if (state.highlightGrades.size) {
+        const g = calcItemIntrinsicGrade(item);
+        if (g && state.highlightGrades.has(g.grade)) gradeCls = GRADE_HL_CLASS[g.grade];
+      }
+      const cls = gradeCls ?? catCls ?? null;
       if (cls) hlMap.set(item.id, cls);
     }
     if (state.pinnedItemId != null) hlMap.set(state.pinnedItemId, "sg-hl-pin");
@@ -1987,7 +1995,11 @@
       .sg-hl-up   { outline:3px solid #3b82f6 !important; box-shadow:0 0 16px 4px rgba(59,130,246,.75) !important; border-radius:4px; }
       .sg-hl-neu  { outline:3px solid #94a3b8 !important; box-shadow:0 0 16px 4px rgba(148,163,184,.65) !important; border-radius:4px; }
       .sg-hl-sal  { outline:3px solid #ef4444 !important; box-shadow:0 0 16px 4px rgba(239,68,68,.75) !important; border-radius:4px; }
-      .sg-hl-pin  { outline:3px solid #f59e0b !important; box-shadow:0 0 20px 6px rgba(245,158,11,.90) !important; border-radius:4px; }
+      .sg-hl-pin      { outline:3px solid #f59e0b !important; box-shadow:0 0 20px 6px rgba(245,158,11,.90) !important; border-radius:4px; }
+      .sg-hl-grade-s  { outline:3px solid #facc15 !important; box-shadow:0 0 16px 4px rgba(250,204,21,.80) !important; border-radius:4px; }
+      .sg-hl-grade-a  { outline:3px solid #4ade80 !important; box-shadow:0 0 16px 4px rgba(74,222,128,.75) !important; border-radius:4px; }
+      .sg-hl-grade-b  { outline:3px solid #60a5fa !important; box-shadow:0 0 16px 4px rgba(96,165,250,.75) !important; border-radius:4px; }
+      .sg-hl-grade-c  { outline:3px solid #94a3b8 !important; box-shadow:0 0 16px 4px rgba(148,163,184,.65) !important; border-radius:4px; }
     `;
     document.documentElement.appendChild(_hlStyleEl);
 
@@ -4093,11 +4105,26 @@
       return `<div style="padding:4px 10px 2px;background:#080f1c;font-size:10px;font-weight:700;" class="${cls}">${grade} Grade (${group.length})</div>${rows}`;
     }).join("");
 
+    const GRADE_HL_STYLE = { S:"color:#facc15;border-color:#92400e;", A:"color:#4ade80;border-color:#14532d;", B:"color:#60a5fa;border-color:#1e3a5f;", C:"color:#94a3b8;border-color:#374151;" };
+    const allActive = ["S","A","B","C"].every(g => state.highlightGrades.has(g));
+    const hlToolbar = `<div class="sg-hl-toolbar">
+      <span class="sg-hl-label">Highlight:</span>
+      <button class="sg-mode-btn${allActive?" active":""}" id="sgHlGradeAll"
+        style="${allActive?"color:#e8eefc;border-color:#3b82f6;":""}"
+        title="Toggle all grade highlights">All</button>
+      ${["S","A","B","C"].map(grade => {
+        const active = state.highlightGrades.has(grade);
+        const count  = graded.filter(x => x.g.grade === grade).length;
+        return `<button class="sg-mode-btn${active?" active":""}" data-hlgrade="${grade}"
+          style="${active ? GRADE_HL_STYLE[grade] : ""}">${grade} <span style="opacity:.6;">${count}</span></button>`;
+      }).join("")}
+    </div>`;
+
     const legend = `<div style="padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.06);font-size:9px;color:#4b5563;">
       Score = Roll%×0.5 + Coherence%×0.4 + Double/Triple bonus · S≥85 · A≥70 · B≥55 · C&lt;55
     </div>`;
 
-    return legend + sections;
+    return hlToolbar + legend + sections;
   }
 
   /**************************************************************************
@@ -4506,6 +4533,23 @@
         });
       });
     }
+
+    if (state.activeTab==="rating") {
+      body.querySelector("#sgHlGradeAll")?.addEventListener("click", () => {
+        const all = ["S","A","B","C"];
+        if (all.every(g => state.highlightGrades.has(g))) state.highlightGrades.clear();
+        else all.forEach(g => state.highlightGrades.add(g));
+        applyBagHighlights(); render();
+      });
+      body.querySelectorAll("[data-hlgrade]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const grade = btn.dataset.hlgrade;
+          if (state.highlightGrades.has(grade)) state.highlightGrades.delete(grade);
+          else state.highlightGrades.add(grade);
+          applyBagHighlights(); render();
+        });
+      });
+    }
   }
 
   /**************************************************************************
@@ -4567,7 +4611,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.43.0',
+    version:     '8.44.0',
     category:    'fighter',
   });
 })();
