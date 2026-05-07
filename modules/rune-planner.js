@@ -551,9 +551,10 @@
 
         let loaded = 0;
         inspected.forEach((entry, index) => {
-          if (!entry.data || !state.party.players[index]) return;
+          if (!state.party.players[index]) return;
           const player = state.party.players[index];
-          player.name = clean(entry.data.username || entry.member?.username || player.name || `Player ${index + 1}`);
+          player.name = clean(entry.data?.username || entry.member?.username || player.name || `Player ${index + 1}`);
+          if (!entry.data) return;
           applyEquippedSlotsToPlayer(player, entry.data.equipped || []);
           loaded += 1;
         });
