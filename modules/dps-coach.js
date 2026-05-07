@@ -775,7 +775,14 @@
 
             const tier = getCurrentZoneTier();
             const key = getCurrentZoneKey();
-            const existing = state.zoneStats[key] || createEmptyZoneRecord(zoneName, tier);
+            if (!key) return null;
+
+            const existing = state.zoneStats[key] || createEmptyZoneRecord(
+                zoneName,
+                tier,
+                state.currentMonsterName,
+                state.huntAll,
+            );
             const ts = now();
             const totals = getDpsCoachSummaryTotals();
             const previousKey = state.lastZoneStatsKey || "";
@@ -784,6 +791,8 @@
             existing.key = key;
             existing.zoneName = zoneName;
             existing.tier = existing.tier || tier;
+            existing.monsterName = existing.monsterName || state.currentMonsterName;
+            existing.huntAll = state.huntAll;
             existing.lastSeenAt = ts;
             existing.activeMs = Number(existing.activeMs || 0);
 
