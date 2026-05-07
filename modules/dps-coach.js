@@ -362,21 +362,21 @@
         }
 
         function installSetZoneInterceptor() {
-            const originalFetch = window.fetch;
+            const _orig = window.fetch;
 
-            window.fetch = async function (resource, options) {
-                const url = typeof resource === "string"
-                    ? resource
-                    : (resource instanceof Request ? resource.url : String(resource || ""));
+            window.fetch = async function (...args) {
+                const url = typeof args[0] === "string" ? args[0] : (args[0]?.url ?? "");
+                const method = String(args[1]?.method || args[0]?.method || "GET").toUpperCase();
 
-                if (url.includes("/api/party/set-zone") && String(options?.method || "").toUpperCase() === "POST") {
+                if (/\/api\/party\/set-zone/i.test(url) && method === "POST") {
                     try {
-                        const body = JSON.parse(options?.body || "{}");
-                        handleSetZone(body);
+                        const body = args[1]?.body || args[0]?.body || "";
+                        const parsed = typeof body === "string" ? JSON.parse(body || "{}") : null;
+                        if (parsed) handleSetZone(parsed);
                     } catch { }
                 }
 
-                return originalFetch.apply(this, arguments);
+                return _orig.apply(this, args);
             };
         }
 
