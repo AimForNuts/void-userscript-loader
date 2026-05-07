@@ -47,6 +47,9 @@
     const MAX_TIER = 4;
     const TIER_COLORS = ["#888", "#7ec8e3", "#a78bfa", "#f472b6"];
     const STORAGE_KEY = "voididle.runePlanner.counts.v1";
+    const TAB_KEY = "voididle.runePlanner.tab.v1";
+    const PARTY_KEY = "voididle.runePlanner.party.v1";
+    const PARTY_TIER_KEY = "voididle.runePlanner.partyTier.v1";
     const CRAFTING_KEY = "voididle.partyPlannerRunes.crafting.v1";
     const CRAFTING_AT_KEY = "voididle.partyPlannerRunes.craftingAt.v1";
     const INVENTORY_KEY = "voididle.partyPlannerRunes.inventory.v1";
@@ -75,8 +78,17 @@
       "Beast Hide": "beast_hide", "Monster Bone": "monster_bone", "Spirit Essence": "spirit_essence", "Storm Essence": "storm_essence", "Elemental Core": "elemental_core", "Shadow Essence": "shadow_essence", "Dragon Scale": "dragon_scale", "Demon Fang": "demon_fang", "Void Essence": "void_essence", "Celestial Essence": "celestial_essence", "Dao Fragment": "dao_fragment", "Dao Crystal": "dao_crystal",
     };
 
+    const PARTY_ITEMS = {
+      "Armor Runes": ["Shoulders", "Helmet", "Chest", "Hands", "Legs", "Boots"],
+      "Accessories Runes": ["Amulet", "Ring 1", "Ring 2"],
+      "Weapon Runes": ["Weapon", "Off Hand"],
+    };
+
     const state = {
+      tab: localStorage.getItem(TAB_KEY) === "party" ? "party" : "manual",
       counts: createEmptyCounts(),
+      party: loadPartySettings(),
+      partyTier: Math.min(MAX_TIER, Math.max(1, Number(localStorage.getItem(PARTY_TIER_KEY) || 1))),
       inventory: loadJSON(INVENTORY_KEY, {}),
       crafting: loadJSON(CRAFTING_KEY, null),
       lastCopiedAt: null,
@@ -96,6 +108,57 @@
         }
       }
       return counts;
+    }
+
+    function createDefaultPartySettings() {
+      return {
+        players: Array.from({ length: 4 }, (_, index) => {
+          const player = {
+            name: `Player ${index + 1}`,
+            slots: {},
+            priorities: {},
+          };
+          for (const cat of RUNE_CATEGORIES) {
+            player.slots[cat.label] = {};
+            player.priorities[cat.label] = {};
+            for (const item of PARTY_ITEMS[cat.label] || []) {
+              player.slots[cat.label][item] = 0;
+            }
+            cat.runes.forEach((rune, runeIndex) => {
+              player.priorities[cat.label][rune.name] = runeIndex + 1;
+            });
+          }
+          return player;
+        }),
+      };
+    }
+
+    function normalizePartySettings(saved) {
+      const fresh = createDefaultPartySettings();
+      const players = Array.isArray(saved?.players) ? saved.players : [];
+      fresh.players.forEach((player, playerIndex) => {
+        const savedPlayer = players[playerIndex] || {};
+        player.name = clean(savedPlayer.name || player.name);
+        for (const cat of RUNE_CATEGORIES) {
+          for (const item of PARTY_ITEMS[cat.label] || []) {
+            const value = Number(savedPlayer.slots?.[cat.label]?.[item] ?? player.slots[cat.label][item]);
+            player.slots[cat.label][item] = Math.min(5, Math.max(0, Math.floor(value || 0)));
+          }
+          for (const rune of cat.runes) {
+            const value = Number(savedPlayer.priorities?.[cat.label]?.[rune.name] ?? player.priorities[cat.label][rune.name]);
+            player.priorities[cat.label][rune.name] = Math.min(cat.runes.length, Math.max(0, Math.floor(value || 0)));
+          }
+        }
+      });
+      return fresh;
+    }
+
+    function loadPartySettings() {
+      return normalizePartySettings(loadJSON(PARTY_KEY, null));
+    }
+
+    function savePartySettings() {
+      saveJSON(PARTY_KEY, state.party);
     }
 
     function loadCounts() {
@@ -226,8 +289,8 @@
       Object.entries(src || {}).forEach(([id, qty]) => addTo(dst, id, Number(qty || 0) * mult));
     }
 
-    function getCount(runeName, tier) {
-      return Number(state.counts[runeName]?.[tier] || 0);
+    function getCount(runeName, tier, counts = state.counts) {
+      return Number(counts?.[runeName]?.[tier] || 0);
     }
 
     function setCount(runeName, tier, value) {
@@ -238,6 +301,36 @@
 
     function changeCount(runeName, tier, delta) {
       setCount(runeName, tier, getCount(runeName, tier) + delta);
+    }
+
+    function addRuneCount(counts, runeName, tier, qty = 1) {
+      if (!counts[runeName]) counts[runeName] = {};
+      counts[runeName][tier] = Math.max(0, Number(counts[runeName][tier] || 0) + qty);
+    }
+
+    function getPartyCounts() {
+      const counts = createEmptyCounts();
+      const tier = Math.min(MAX_TIER, Math.max(1, Number(state.partyTier || 1)));
+      for (const player of state.party.players || []) {
+        for (const cat of RUNE_CATEGORIES) {
+          const priorities = player.priorities?.[cat.label] || {};
+          for (const item of PARTY_ITEMS[cat.label] || []) {
+            const slots = Math.min(5, Math.max(0, Math.floor(Number(player.slots?.[cat.label]?.[item] || 0))));
+            if (slots <= 0) continue;
+            for (const rune of cat.runes) {
+              const priority = Number(priorities[rune.name] || 0);
+              if (priority > 0 && priority <= slots) {
+                addRuneCount(counts, rune.name, tier, 1);
+              }
+            }
+          }
+        }
+      }
+      return counts;
+    }
+
+    function getActiveCounts() {
+      return state.tab === "party" ? getPartyCounts() : state.counts;
     }
 
     function getStoredAuthToken() {
@@ -326,14 +419,14 @@
       }) || null;
     }
 
-    function selectedRunePlan() {
+    function selectedRunePlan(counts = getActiveCounts()) {
       const processed = {};
       const selections = [];
       const missingRecipes = [];
       for (const cat of RUNE_CATEGORIES) {
         for (const rune of cat.runes) {
           for (let tier = 1; tier <= MAX_TIER; tier += 1) {
-            const qty = getCount(rune.name, tier);
+            const qty = getCount(rune.name, tier, counts);
             if (qty <= 0) continue;
             const recipe = findRuneRecipe(rune.name, tier);
             if (!recipe) {
@@ -382,13 +475,13 @@
       showMessage(app, `Scanned ${Object.keys(out).length} inventory items`, "#69f0ae");
     }
 
-    function getSelectedLines() {
+    function getSelectedLines(counts = getActiveCounts()) {
       const lines = [];
       for (const cat of RUNE_CATEGORIES) {
         for (const rune of cat.runes) {
           const parts = [];
           for (let tier = 1; tier <= MAX_TIER; tier += 1) {
-            const count = getCount(rune.name, tier);
+            const count = getCount(rune.name, tier, counts);
             if (count > 0) {
               parts.push(`t${tier} x ${count}`);
             }
@@ -408,12 +501,12 @@
         .map((id) => `${id} x ${fmt(plan.processed[id])}`);
     }
 
-    function getSelectedTotal() {
+    function getSelectedTotal(counts = getActiveCounts()) {
       let total = 0;
       for (const cat of RUNE_CATEGORIES) {
         for (const rune of cat.runes) {
           for (let tier = 1; tier <= MAX_TIER; tier += 1) {
-            total += getCount(rune.name, tier);
+            total += getCount(rune.name, tier, counts);
           }
         }
       }
@@ -476,6 +569,14 @@
     }
 
     function resetAll(app) {
+      if (state.tab === "party") {
+        state.party = createDefaultPartySettings();
+        state.partyTier = 1;
+        savePartySettings();
+        localStorage.setItem(PARTY_TIER_KEY, String(state.partyTier));
+        showMessage(app, "Reset party rune plan", "#ffa726");
+        return;
+      }
       state.counts = createEmptyCounts();
       saveCounts();
       showMessage(app, "Reset all rune counts", "#ffa726");
@@ -576,6 +677,29 @@
           gap:6px;
           flex-wrap:wrap;
           justify-content:flex-end;
+        }
+
+        .rp-tabs {
+          display:grid;
+          grid-template-columns:1fr 1fr;
+          gap:6px;
+          margin-bottom:10px;
+        }
+
+        .rp-tab {
+          background:#101826;
+          border:1px solid rgba(255,255,255,0.10);
+          color:#cdd6f4;
+          border-radius:8px;
+          padding:7px 9px;
+          font-weight:800;
+          cursor:pointer;
+        }
+
+        .rp-tab.active {
+          background:rgba(124,111,205,0.32);
+          border-color:rgba(201,184,255,0.55);
+          color:#fff;
         }
 
         .rp-toast {
@@ -738,6 +862,81 @@
           margin-top:8px;
         }
 
+        .rp-input,
+        .rp-select {
+          background:#050b17;
+          color:#f4f8ff;
+          border:1px solid rgba(255,255,255,0.12);
+          border-radius:7px;
+          padding:5px 6px;
+          font-size:12px;
+        }
+
+        .rp-input {
+          width:100%;
+          box-sizing:border-box;
+        }
+
+        .rp-select {
+          min-width:54px;
+        }
+
+        .rp-player-head {
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:8px;
+          padding:8px 10px;
+          background:rgba(0,0,0,0.22);
+        }
+
+        .rp-player-name {
+          max-width:190px;
+        }
+
+        .rp-party-grid {
+          display:grid;
+          grid-template-columns:1fr;
+          gap:8px;
+        }
+
+        .rp-party-block {
+          padding:8px 10px 10px;
+          border-top:1px solid rgba(255,255,255,0.06);
+        }
+
+        .rp-party-label {
+          font-size:11px;
+          font-weight:800;
+          text-transform:uppercase;
+          letter-spacing:.08em;
+          color:rgba(229,231,235,0.64);
+          margin-bottom:6px;
+        }
+
+        .rp-slot-grid,
+        .rp-priority-grid {
+          display:grid;
+          grid-template-columns:repeat(auto-fit,minmax(112px,1fr));
+          gap:6px;
+        }
+
+        .rp-field {
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:6px;
+          min-height:30px;
+          color:rgba(229,231,235,0.82);
+        }
+
+        .rp-field span {
+          min-width:0;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          white-space:nowrap;
+        }
+
         .rp-resource-head {
           display:flex;
           align-items:center;
@@ -785,9 +984,10 @@
     }
 
     function render() {
-      const selectedLines = getSelectedLines();
-      const selectedTotal = getSelectedTotal();
-      const plan = selectedRunePlan();
+      const counts = getActiveCounts();
+      const selectedLines = getSelectedLines(counts);
+      const selectedTotal = getSelectedTotal(counts);
+      const plan = selectedRunePlan(counts);
 
       return `
       ${renderStyles()}
@@ -806,7 +1006,12 @@
           </div>
         </div>
 
-        ${RUNE_CATEGORIES.map(renderCategory).join("")}
+        <div class="rp-tabs">
+          ${renderTabButton("manual", "Manual Counts")}
+          ${renderTabButton("party", "Party Priorities")}
+        </div>
+
+        ${state.tab === "party" ? renderPartyBody() : renderManualBody()}
 
         ${renderResourcePanel(plan)}
 
@@ -822,6 +1027,102 @@
         </div>
       </div>
     `;
+    }
+
+    function renderTabButton(id, label) {
+      return `<button type="button" class="rp-tab${state.tab === id ? " active" : ""}" data-rp-tab="${escapeHtml(id)}">${escapeHtml(label)}</button>`;
+    }
+
+    function renderManualBody() {
+      return RUNE_CATEGORIES.map(renderCategory).join("");
+    }
+
+    function renderPartyBody() {
+      const tierOptions = Array.from({ length: MAX_TIER }, (_, index) => {
+        const tier = index + 1;
+        return `<option value="${tier}"${Number(state.partyTier) === tier ? " selected" : ""}>T${tier}</option>`;
+      }).join("");
+
+      return `
+        <div class="rp-summary">
+          <div class="rp-resource-head">
+            <div>
+              <div class="rp-resource-title">Party Priorities</div>
+              <div class="rp-muted">Each item uses priorities up to its slot count. Priority 0 skips that rune.</div>
+            </div>
+            <label class="rp-field" style="min-width:110px;">
+              <span>Rune tier</span>
+              <select class="rp-select" data-rp-party-tier>${tierOptions}</select>
+            </label>
+          </div>
+        </div>
+        <div class="rp-party-grid">
+          ${(state.party.players || []).map((player, index) => renderPlayerCard(player, index)).join("")}
+        </div>
+      `;
+    }
+
+    function renderPlayerCard(player, playerIndex) {
+      return `
+        <div class="rp-section">
+          <div class="rp-player-head">
+            <input
+              class="rp-input rp-player-name"
+              data-rp-party-name="${playerIndex}"
+              value="${escapeHtml(player.name)}"
+              aria-label="Player ${playerIndex + 1} name"
+            >
+            <span class="rp-muted">Player ${playerIndex + 1}</span>
+          </div>
+          ${RUNE_CATEGORIES.map((cat) => renderPlayerCategory(player, playerIndex, cat)).join("")}
+        </div>
+      `;
+    }
+
+    function renderPlayerCategory(player, playerIndex, cat) {
+      const slotFields = (PARTY_ITEMS[cat.label] || []).map((item) => {
+        const value = Number(player.slots?.[cat.label]?.[item] || 0);
+        return `
+          <label class="rp-field">
+            <span>${escapeHtml(item)}</span>
+            <select class="rp-select" data-rp-party-slot="${playerIndex}" data-rp-category="${escapeHtml(cat.label)}" data-rp-item="${escapeHtml(item)}">
+              ${renderNumberOptions(0, 5, value)}
+            </select>
+          </label>
+        `;
+      }).join("");
+
+      const priorityFields = cat.runes.map((rune) => {
+        const value = Number(player.priorities?.[cat.label]?.[rune.name] || 0);
+        return `
+          <label class="rp-field">
+            <span title="${escapeHtml(rune.name)} ${escapeHtml(rune.stat)}">${escapeHtml(rune.stat.replace(/^\+/, ""))}</span>
+            <select class="rp-select" data-rp-party-priority="${playerIndex}" data-rp-category="${escapeHtml(cat.label)}" data-rp-rune="${escapeHtml(rune.name)}">
+              ${renderNumberOptions(0, cat.runes.length, value)}
+            </select>
+          </label>
+        `;
+      }).join("");
+
+      return `
+        <div class="rp-party-block" style="border-color:${cat.accent}33;">
+          <div class="rp-section-title" style="padding:0 0 7px;background:transparent;color:${cat.accent};">
+            <span class="rp-dot" style="background:${cat.accent};"></span>
+            ${escapeHtml(cat.label)}
+          </div>
+          <div class="rp-party-label">Item Slots</div>
+          <div class="rp-slot-grid">${slotFields}</div>
+          <div class="rp-party-label" style="margin-top:8px;">Rune Priority</div>
+          <div class="rp-priority-grid">${priorityFields}</div>
+        </div>
+      `;
+    }
+
+    function renderNumberOptions(min, max, current) {
+      return Array.from({ length: max - min + 1 }, (_, index) => {
+        const value = min + index;
+        return `<option value="${value}"${Number(current) === value ? " selected" : ""}>${value}</option>`;
+      }).join("");
     }
 
     function renderCategory(cat) {
@@ -905,6 +1206,16 @@
       panel.addEventListener("click", async (event) => {
         const target = event.target;
 
+        const tabButton = target.closest("[data-rp-tab]");
+        if (tabButton && panel.contains(tabButton)) {
+          event.preventDefault();
+          event.stopPropagation();
+          state.tab = tabButton.dataset.rpTab === "party" ? "party" : "manual";
+          localStorage.setItem(TAB_KEY, state.tab);
+          renderIntoPanel(app);
+          return;
+        }
+
         const changeButton = target.closest("[data-rp-change]");
         if (changeButton && panel.contains(changeButton)) {
           event.preventDefault();
@@ -952,6 +1263,53 @@
           resetAll(app);
         }
       });
+
+      panel.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!target || !panel.contains(target)) return;
+
+        if (target.matches("[data-rp-party-tier]")) {
+          state.partyTier = Math.min(MAX_TIER, Math.max(1, Number(target.value || 1)));
+          localStorage.setItem(PARTY_TIER_KEY, String(state.partyTier));
+          renderIntoPanel(app);
+          return;
+        }
+
+        if (target.matches("[data-rp-party-name]")) {
+          const playerIndex = Number(target.dataset.rpPartyName);
+          if (!state.party.players[playerIndex]) return;
+          state.party.players[playerIndex].name = clean(target.value) || `Player ${playerIndex + 1}`;
+          savePartySettings();
+          renderIntoPanel(app);
+          return;
+        }
+
+        if (target.matches("[data-rp-party-slot]")) {
+          const playerIndex = Number(target.dataset.rpPartySlot);
+          const category = clean(target.dataset.rpCategory);
+          const item = clean(target.dataset.rpItem);
+          const player = state.party.players[playerIndex];
+          if (!player || !category || !item) return;
+          if (!player.slots[category]) player.slots[category] = {};
+          player.slots[category][item] = Math.min(5, Math.max(0, Math.floor(Number(target.value || 0))));
+          savePartySettings();
+          renderIntoPanel(app);
+          return;
+        }
+
+        if (target.matches("[data-rp-party-priority]")) {
+          const playerIndex = Number(target.dataset.rpPartyPriority);
+          const category = clean(target.dataset.rpCategory);
+          const runeName = clean(target.dataset.rpRune);
+          const player = state.party.players[playerIndex];
+          const cat = RUNE_CATEGORIES.find((entry) => entry.label === category);
+          if (!player || !cat || !runeName) return;
+          if (!player.priorities[category]) player.priorities[category] = {};
+          player.priorities[category][runeName] = Math.min(cat.runes.length, Math.max(0, Math.floor(Number(target.value || 0))));
+          savePartySettings();
+          renderIntoPanel(app);
+        }
+      });
     }
 
     function renderIntoPanel(app) {
@@ -965,9 +1323,9 @@
 
       body.innerHTML = render();
 
-      const selectedTotal = getSelectedTotal();
+      const selectedTotal = getSelectedTotal(getActiveCounts());
       footer.textContent =
-        `${selectedTotal} selected | Rune recipes ${getRuneRecipes().length} | Inventory ${Object.keys(state.inventory || {}).length} | Last copied ${formatTime(state.lastCopiedAt)}`;
+        `${state.tab === "party" ? "Party" : "Manual"} | ${selectedTotal} selected | Rune recipes ${getRuneRecipes().length} | Inventory ${Object.keys(state.inventory || {}).length} | Last copied ${formatTime(state.lastCopiedAt)}`;
 
       attachEvents(app);
     }
