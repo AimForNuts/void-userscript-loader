@@ -707,7 +707,7 @@
                     const monsterSlugLoad = record.monsterName
                         ? record.monsterName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
                         : "";
-                    record.key = getZoneKeyFor(record.zoneName, record.tier, monsterSlugLoad, record.huntAll ? record.huntAll : null);
+                    record.key = getZoneKeyFor(record.zoneName, record.tier, monsterSlugLoad, monsterSlugLoad ? record.huntAll : null);
                     loaded[record.key] = mergeZoneRecords(loaded[record.key], record);
                 }
 
@@ -730,7 +730,7 @@
                     const monsterSlugSave = cleanRecord.monsterName
                         ? cleanRecord.monsterName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
                         : "";
-                    cleanRecord.key = getZoneKeyFor(cleanRecord.zoneName, cleanRecord.tier, monsterSlugSave, cleanRecord.huntAll ? cleanRecord.huntAll : null);
+                    cleanRecord.key = getZoneKeyFor(cleanRecord.zoneName, cleanRecord.tier, monsterSlugSave, monsterSlugSave ? cleanRecord.huntAll : null);
                     out[cleanRecord.key] = mergeZoneRecords(out[cleanRecord.key], cleanRecord);
                 }
 
