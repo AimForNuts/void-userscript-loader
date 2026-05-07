@@ -701,6 +701,8 @@
     let s = String(raw).trim(), mult = 1;
     if (/k$/i.test(s)) { mult = 1_000;     s = s.slice(0,-1); }
     if (/m$/i.test(s)) { mult = 1_000_000; s = s.slice(0,-1); }
+    // Strip suffixes like "/ 10s" before chars collapse numbers together ("33.7 / 10s" → "33.7")
+    s = s.replace(/^([+\-]?[\d.,]+)[^0-9.,].*$/, "$1");
     s = s.replace(/[^0-9.,\-]/g,"");
     if (!s) return NaN;
     if (s.includes(",")) s = s.replace(/\./g,"").replace(",",".");
@@ -1189,7 +1191,8 @@
   }
 
   function readSkills() {
-    const re = /(\d+)\s*MP\s*[·•]\s*([\d.]+)s\s*[·•]\s*([\d.]+)s/;
+    // Format: "COST MP · COOLDOWN_SECONDS · CURRENT_TIMER" — only cost + cooldown matter
+    const re = /(\d+)\s*MP\s*[·•]\s*([\d.]+)s/;
     const skills = [];
     const seen = new Set();
     document.querySelectorAll('button').forEach(btn => {
@@ -1204,17 +1207,17 @@
       const m = el.textContent.match(re);
       if (!m) return;
       const enabled = /^\s*ON\s*$/.test(btn.textContent);
-      // Find skill name: first leaf text that doesn't contain 'MP' or the stat pattern
+      // Find skill name: first leaf text with actual letters (skips emoji-only nodes)
       let name = '?';
       const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = w.nextNode())) {
         const t = node.textContent.trim();
-        if (t && !re.test(t) && !/^[\d.\s·•]+$/.test(t) && !/MP/i.test(t) && !/ON|OFF/.test(t)) {
+        if (t && /\p{L}/u.test(t) && !/MP/i.test(t) && !/^\s*(ON|OFF)\s*$/.test(t)) {
           name = t; break;
         }
       }
-      skills.push({ name, cost: +m[1], intervalS: +m[2], castS: +m[3], enabled });
+      skills.push({ name, cost: +m[1], intervalS: +m[2], enabled });
     });
     state.skills = skills;
   }
@@ -2095,7 +2098,7 @@
             (1 + ${state.def} DEF / 1000)${state.allStats ? ` · <b>${state.allStats}%</b> All Stats` : ""}
           </div>
         </div>
-        ${state.manaRegen != null ? `<div class="sg-row" style="margin-top:4px;"><span class="sg-key">Mana / tick</span><span class="sg-val c-blue">${fmtDec(state.manaRegen)}</span></div>` : ""}
+        ${state.manaRegen != null ? `<div class="sg-row" style="margin-top:4px;"><span class="sg-key">Mana /10s</span><span class="sg-val c-blue">${fmtDec(state.manaRegen)}</span></div>` : ""}
         ${state.maxManaStat != null ? `<div class="sg-row"><span class="sg-key">Max Mana</span><span class="sg-val c-blue">${fmt(state.maxManaStat)}</span></div>` : ""}
       </div>`;
     }
@@ -2118,7 +2121,7 @@
         <div class="sg-row"><span class="sg-key">Max HP</span>     <span class="sg-val c-green">${fmt(state.maxHpStat)}</span></div>
         <div class="sg-row"><span class="sg-key">Max Mana</span>   <span class="sg-val c-blue">${state.maxManaStat??"—"}</span></div>
         <div class="sg-row"><span class="sg-key">Heal Power</span> <span class="sg-val c-green">${state.healPower??"—"}</span></div>
-        <div class="sg-row"><span class="sg-key">Mana Regen</span> <span class="sg-val c-blue">${state.manaRegen??"—"}/t</span></div>
+        <div class="sg-row"><span class="sg-key">Mana Regen</span> <span class="sg-val c-blue">${state.manaRegen??"—"}/10s</span></div>
       </div>
       ${(() => {
         const enabledSkills = state.skills.filter(s => s.enabled);
@@ -4408,7 +4411,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.35.0',
+    version:     '8.36.0',
     category:    'fighter',
   });
 })();
