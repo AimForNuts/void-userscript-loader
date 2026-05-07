@@ -992,19 +992,13 @@
       }
     }
 
-    // Combined mana score: pool + regen × 3
+    // Combined mana score: base pool delta + base regen delta × 3 (no allStats amplification)
     let manaDeltaHtml = "";
     {
-      const curAllStats   = sc.allStats ?? 0;
-      const allStatsDelta = (ttStats.allStats  ?? 0) - (eqBaseStats.allStats  ?? 0);
-      const manaDelta     = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
-      const mregenDelta   = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
-      if (manaDelta !== 0 || mregenDelta !== 0 || allStatsDelta !== 0) {
-        const baseMana   = (sc.maxManaStat ?? 0) / (1 + curAllStats / 100);
-        const baseMRegen = (sc.manaRegen  ?? 0)  / (1 + curAllStats / 100);
-        const newMana    = (baseMana   + manaDelta)   * (1 + (curAllStats + allStatsDelta) / 100);
-        const newMRegen  = (baseMRegen + mregenDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-        const score = (newMana - (sc.maxManaStat ?? 0)) + (newMRegen - (sc.manaRegen ?? 0)) * 3;
+      const manaDelta   = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
+      const mregenDelta = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
+      if (manaDelta !== 0 || mregenDelta !== 0) {
+        const score = manaDelta + mregenDelta * 3;
         if (Math.abs(score) >= 1) {
           const sign = score >= 0 ? "+" : "";
           const col  = score > 0 ? "#60a5fa" : "#f87171";
@@ -4356,7 +4350,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.33.0',
+    version:     '8.34.0',
     category:    'fighter',
   });
 })();
