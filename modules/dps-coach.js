@@ -332,10 +332,17 @@
                 .replace(/^-+|-+$/g, "") || "unknown-zone";
         }
 
-        function getZoneKeyFor(zoneName, tier = "") {
+        function getZoneKeyFor(zoneName, tier = "", monsterId = "", huntAll = null) {
             const base = getZoneStorageKey(zoneName);
             const cleanTier = String(tier || "").replace(/^T/i, "").trim();
-            return cleanTier ? `${base}|T${cleanTier}` : base;
+            const tierPart = cleanTier ? `T${cleanTier}` : "";
+            const cleanMonster = String(monsterId || "")
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-+|-+$/g, "");
+            const huntPart = huntAll === true ? "hunt-all" : huntAll === false ? "single" : "";
+
+            return [base, tierPart, cleanMonster, huntPart].filter(Boolean).join("|");
         }
 
         function formatSlugToDisplay(slug) {
@@ -538,7 +545,18 @@
         }
 
         function getCurrentZoneKey() {
-            return getZoneKeyFor(getCurrentZoneName(), getCurrentZoneTier());
+            if (!state.setZoneReady) return null;
+
+            const monsterSlug = state.currentMonsterName
+                ? state.currentMonsterName.toLowerCase().replace(/\s+/g, "-")
+                : "";
+
+            return getZoneKeyFor(
+                getCurrentZoneName(),
+                getCurrentZoneTier(),
+                monsterSlug,
+                state.huntAll,
+            );
         }
 
         const ZONE_SUMMARY_METRICS = Object.freeze([
