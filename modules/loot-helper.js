@@ -9,6 +9,8 @@
   let _charViewObs  = null;
   let _cssStyleEl   = null;
   let _hlStyleEl    = null;
+  let _hlFadeTimer  = null;
+  let _hlFadeEls    = [];
 
   /**************************************************************************
    * CONSTANTS
@@ -1117,6 +1119,80 @@
     });
   }
 
+  function fadeApplyBagHighlights() {
+    if (_hlFadeTimer) {
+      clearTimeout(_hlFadeTimer);
+      _hlFadeTimer = null;
+      _hlFadeEls.forEach(el => {
+        el.style.removeProperty("transition");
+        el.style.removeProperty("outline-color");
+        el.style.removeProperty("box-shadow");
+      });
+      _hlFadeEls = [];
+    }
+
+    const allHlClasses = [...Object.values(CAT_HL_CLASS), ...Object.values(GRADE_HL_CLASS), "sg-hl-pin"];
+    const sel = allHlClasses.map(c => "."+c).join(",");
+    const currentEls = [...document.querySelectorAll(sel)];
+
+    if (!currentEls.length) {
+      applyBagHighlights();
+      return;
+    }
+
+    // Fade out current highlights
+    currentEls.forEach(el =>
+      el.style.setProperty("transition", "outline-color 0.25s ease, box-shadow 0.25s ease", "important")
+    );
+    _hlFadeEls = currentEls;
+
+    requestAnimationFrame(() => {
+      currentEls.forEach(el => {
+        el.style.setProperty("outline-color", "transparent", "important");
+        el.style.setProperty("box-shadow", "none", "important");
+      });
+
+      _hlFadeTimer = setTimeout(() => {
+        currentEls.forEach(el => {
+          allHlClasses.forEach(c => el.classList.remove(c));
+          el.style.removeProperty("transition");
+          el.style.removeProperty("outline-color");
+          el.style.removeProperty("box-shadow");
+        });
+
+        applyBagHighlights();
+        const newEls = [...document.querySelectorAll(sel)];
+        _hlFadeEls = newEls;
+
+        if (!newEls.length) {
+          _hlFadeTimer = null;
+          _hlFadeEls = [];
+          return;
+        }
+
+        // Start from transparent so we can fade in
+        newEls.forEach(el => {
+          el.style.setProperty("outline-color", "transparent", "important");
+          el.style.setProperty("box-shadow", "none", "important");
+        });
+
+        requestAnimationFrame(() => {
+          newEls.forEach(el => {
+            el.style.setProperty("transition", "outline-color 0.25s ease, box-shadow 0.25s ease", "important");
+            el.style.removeProperty("outline-color");
+            el.style.removeProperty("box-shadow");
+          });
+
+          _hlFadeTimer = setTimeout(() => {
+            newEls.forEach(el => el.style.removeProperty("transition"));
+            _hlFadeTimer = null;
+            _hlFadeEls = [];
+          }, 280);
+        });
+      }, 280);
+    });
+  }
+
   /**************************************************************************
    * LOOT LOGIC
    **************************************************************************/
@@ -1965,8 +2041,8 @@
         state.activeTab = btn.dataset.tab;
         if (state.activeTab !== "gear" && state.activeTab !== "team") {
           state.pinnedItemId = null;
-          applyBagHighlights();
         }
+        fadeApplyBagHighlights();
         const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team" || state.activeTab === "history" || state.activeTab === "rating";
         if (_moduleApp) {
           panelEl.style.width = isWide ? "480px" : "310px";
@@ -2022,7 +2098,7 @@
       panelEl.id = "sgPanel";
       panelEl.innerHTML = `
         <div class="sg-drag" id="sgDrag">
-          <span class="sg-title">⚡ Loot Helper <span style="font-size:10px;font-weight:400;color:#4b5563;">v8.24.0</span></span>
+          <span class="sg-title">⚡ Loot Helper <span style="font-size:10px;font-weight:400;color:#4b5563;">v8.46.0</span></span>
           <button class="sg-btn" id="sgHide">Hide</button>
         </div>
         ${_panelShellHtml()}
