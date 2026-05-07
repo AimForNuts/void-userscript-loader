@@ -676,6 +676,7 @@
     healPower:null, lifesteal:null, manaRegen:null,
     xpBonus:null, goldBonus:null, dropRate:null, allStats:null,
     kills:null, zonesVisited:null,
+    skills:[],
 
     equipped:{}, equippedCachedAt:null,
     bagItems:[], bagItemsRaw:[], bagVisible:false,
@@ -998,12 +999,12 @@
       const manaDelta   = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
       const mregenDelta = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
       if (manaDelta !== 0 || mregenDelta !== 0) {
-        const score = manaDelta + mregenDelta * 3;
+        const score = manaDelta + mregenDelta * 6;
         if (Math.abs(score) >= 1) {
           const sign = score >= 0 ? "+" : "";
           const col  = score > 0 ? "#60a5fa" : "#f87171";
           const SEP  = `style="padding:3px 0;border-top:1px solid rgba(255,255,255,.06);margin-top:4px"`;
-          manaDeltaHtml = `<div class="sg-row" ${SEP} title="Mana Score = ΔPool + ΔRegen×3"><span class="sg-key">∆ Mana</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
+          manaDeltaHtml = `<div class="sg-row" ${SEP} title="Mana Score = ΔPool + ΔRegen×6"><span class="sg-key">∆ Mana</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
         }
       }
     }
@@ -1185,6 +1186,37 @@
     if (xpM) { state.xpCurrent=parseNum(xpM[1]); state.xpTotal=parseNum(xpM[2]); }
     state.xphr = txt(".pb-xphr-val", bar);
     state.zone  = txt(".pb-zone", bar);
+  }
+
+  function readSkills() {
+    const re = /(\d+)\s*MP\s*[·•]\s*([\d.]+)s\s*[·•]\s*([\d.]+)s/;
+    const skills = [];
+    const seen = new Set();
+    document.querySelectorAll('button').forEach(btn => {
+      if (!/^\s*(ON|OFF)\s*$/.test(btn.textContent)) return;
+      let el = btn.parentElement;
+      for (let i = 0; i < 6 && el; i++) {
+        if (re.test(el.textContent)) break;
+        el = el.parentElement;
+      }
+      if (!el || seen.has(el)) return;
+      seen.add(el);
+      const m = el.textContent.match(re);
+      if (!m) return;
+      const enabled = /^\s*ON\s*$/.test(btn.textContent);
+      // Find skill name: first leaf text that doesn't contain 'MP' or the stat pattern
+      let name = '?';
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = w.nextNode())) {
+        const t = node.textContent.trim();
+        if (t && !re.test(t) && !/^[\d.\s·•]+$/.test(t) && !/MP/i.test(t) && !/ON|OFF/.test(t)) {
+          name = t; break;
+        }
+      }
+      skills.push({ name, cost: +m[1], intervalS: +m[2], castS: +m[3], enabled });
+    });
+    state.skills = skills;
   }
 
   function readCharView() {
@@ -2086,8 +2118,33 @@
         <div class="sg-row"><span class="sg-key">Max HP</span>     <span class="sg-val c-green">${fmt(state.maxHpStat)}</span></div>
         <div class="sg-row"><span class="sg-key">Max Mana</span>   <span class="sg-val c-blue">${state.maxManaStat??"—"}</span></div>
         <div class="sg-row"><span class="sg-key">Heal Power</span> <span class="sg-val c-green">${state.healPower??"—"}</span></div>
-        <div class="sg-row"><span class="sg-key">Mana Regen</span> <span class="sg-val c-blue">${state.manaRegen??"—"}</span></div>
+        <div class="sg-row"><span class="sg-key">Mana Regen</span> <span class="sg-val c-blue">${state.manaRegen??"—"}/t</span></div>
       </div>
+      ${(() => {
+        const enabledSkills = state.skills.filter(s => s.enabled);
+        if (!enabledSkills.length) return '';
+        const totalMpMin = enabledSkills.reduce((s, sk) => s + sk.cost * 60 / sk.intervalS, 0);
+        const regenMpMin = (state.manaRegen ?? 0) * 6;
+        const surplus    = regenMpMin - totalMpMin;
+        const surplusCol = surplus >= 0 ? "#60a5fa" : "#f87171";
+        const surplusSign = surplus >= 0 ? "+" : "";
+        return `<div class="sg-sec">
+          <div class="sg-lbl">Mana Use</div>
+          ${enabledSkills.map(sk => {
+            const mpm = Math.round(sk.cost * 60 / sk.intervalS);
+            return `<div class="sg-row"><span class="sg-key">${esc(sk.name)}</span><span class="sg-val c-blue">${mpm}/min</span></div>`;
+          }).join('')}
+          <div class="sg-row" style="border-top:1px solid rgba(255,255,255,.06);margin-top:4px;padding-top:4px">
+            <span class="sg-key">Total needed</span><span class="sg-val">${Math.round(totalMpMin)} MP/min</span>
+          </div>
+          <div class="sg-row">
+            <span class="sg-key">Regen (6t/min)</span><span class="sg-val c-blue">${Math.round(regenMpMin)} MP/min</span>
+          </div>
+          <div class="sg-row">
+            <span class="sg-key">Surplus</span><span style="color:${surplusCol};font-weight:700">${surplusSign}${Math.round(surplus)} MP/min</span>
+          </div>
+        </div>`;
+      })()}
       <div class="sg-sec">
         <div class="sg-lbl">Base Stats</div>
         <div class="sg-row"><span class="sg-key">STR</span><span class="sg-val">${state.str??"—"}</span></div>
@@ -4299,6 +4356,7 @@
   function tick() {
     readPlayerBar();
     readCharView();
+    readSkills();
     readInventoryState();
     readMarketListings();
     applyBagHighlights();
@@ -4350,7 +4408,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.34.0',
+    version:     '8.35.0',
     category:    'fighter',
   });
 })();
