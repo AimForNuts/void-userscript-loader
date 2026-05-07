@@ -2892,6 +2892,8 @@
                         const name = formatZoneNameForDisplay(row);
                         return [
                             name,
+                            row.monsterName ? `Monster ${row.monsterName}` : "",
+                            `Hunt All ${row.huntAll ? "Yes" : "No"}`,
                             `Time ${formatZoneTrackedTime(row)}`,
                             `XP/hr ${formatNumber(getZoneRate(row, "xp"))}`,
                             `Gold/hr ${formatNumber(getZoneRate(row, "gold"))}`,
@@ -2899,7 +2901,7 @@
                             `Kills/hr ${formatNumber(getZoneRate(row, "kills"))}`,
                             `Deaths ${formatNumber(row.deaths)}`,
                             `Accuracy ${pct(getZoneAccuracy(row))}`,
-                        ].join(" | ");
+                        ].filter(Boolean).join(" | ");
                     }),
                 ].join("\n")
                 : "No zone stats yet.";
