@@ -52,6 +52,18 @@
     const INVENTORY_KEY = "voididle.partyPlannerRunes.inventory.v1";
     const INVENTORY_AT_KEY = "voididle.partyPlannerRunes.scannedAt.v1";
     const DEBUG_CRAFTING_KEY = "voididle.partyPlannerRunes.debugCraftingResponse.v1";
+    const RESOURCE_IDS = new Set([
+      "beast_hide",
+      "spirit_essence",
+      "storm_essence",
+      "shadow_essence",
+      "dragon_scale",
+      "demon_fang",
+      "void_essence",
+      "celestial_essence",
+      "dao_fragment",
+      "elemental_core",
+    ]);
 
     const MATERIAL_ALIASES = {
       "Bamboo": "bamboo", "Ironwood": "ironwood", "Spiritwood": "spiritwood", "Ashwood": "ashwood", "Duskwood": "duskwood", "Elderwood": "elderwood",
@@ -292,54 +304,9 @@
       return getCraftingRecipes().filter((recipe) => recipe?.result?.type === "rune");
     }
 
-    function getRefineRecipesByResult() {
-      const out = {};
-      getCraftingRecipes().forEach((recipe) => {
-        if (recipe?.result?.type !== "refine" || !recipe.result.materialId) return;
-        const resultId = recipe.result.materialId;
-        const current = out[resultId];
-        const isBaseRefine = String(recipe.id || "").startsWith("refine_");
-        const currentIsBaseRefine = String(current?.id || "").startsWith("refine_");
-        if (!current || (isBaseRefine && !currentIsBaseRefine)) out[resultId] = recipe;
-      });
-      return out;
-    }
-
     function directMaterials(recipe) {
       const out = {};
       Object.entries(recipe?.materials || {}).forEach(([id, qty]) => addTo(out, id, Number(qty || 0)));
-      return out;
-    }
-
-    function expandToRaw(id, qty, refineMap, stack = {}) {
-      if (!id || !qty) return {};
-      if (stack[id]) return { [id]: qty };
-      const recipe = refineMap[id];
-      if (!recipe) return { [id]: qty };
-      const resultQty = Number(recipe.result?.quantity || 1);
-      const crafts = qty / resultQty;
-      const out = {};
-      const nextStack = { ...stack, [id]: true };
-      Object.entries(recipe.materials || {}).forEach(([mat, matQty]) => {
-        mergeInto(out, expandToRaw(mat, Number(matQty || 0) * crafts, refineMap, nextStack));
-      });
-      return out;
-    }
-
-    function rawEquivalent(materials) {
-      const refineMap = getRefineRecipesByResult();
-      const out = {};
-      Object.entries(materials || {}).forEach(([id, qty]) => mergeInto(out, expandToRaw(id, qty, refineMap)));
-      return out;
-    }
-
-    function neededMinusInventory(needs) {
-      const out = {};
-      Object.entries(needs || {}).forEach(([id, qty]) => {
-        const have = Number(state.inventory?.[id] || 0);
-        const missing = Math.max(0, Number(qty || 0) - have);
-        if (missing > 0) out[id] = missing;
-      });
       return out;
     }
 
@@ -361,7 +328,6 @@
 
     function selectedRunePlan() {
       const processed = {};
-      const raw = {};
       const selections = [];
       const missingRecipes = [];
       for (const cat of RUNE_CATEGORIES) {
@@ -376,7 +342,6 @@
             }
             const mats = directMaterials(recipe);
             mergeInto(processed, mats, qty);
-            mergeInto(raw, rawEquivalent(mats), qty);
             selections.push({ id: recipe.id, name: recipe.name, tier, qty, materials: mats });
           }
         }
@@ -384,9 +349,6 @@
       return {
         selections,
         processed,
-        raw,
-        missingProcessed: neededMinusInventory(processed),
-        missingRaw: neededMinusInventory(raw),
         missingRecipes,
       };
     }
@@ -506,7 +468,9 @@
     }
 
     function materialRows(map, showHave) {
-      const keys = Object.keys(map || {}).sort((a, b) => displayName(a).localeCompare(displayName(b)));
+      const keys = Object.keys(map || {})
+        .filter((id) => RESOURCE_IDS.has(id))
+        .sort((a, b) => displayName(a).localeCompare(displayName(b)));
       if (!keys.length) {
         return `<tr><td colspan="${showHave ? 4 : 2}" class="rp-muted">None</td></tr>`;
       }
@@ -539,7 +503,7 @@
         <div class="rp-summary">
           <div class="rp-resource-head">
             <div>
-              <div class="rp-resource-title">Resources Needed</div>
+              <div class="rp-resource-title">Resources</div>
               <div class="rp-muted">Crafting: ${escapeHtml(formatDateTime(craftingAt))} | Inventory: ${escapeHtml(formatDateTime(inventoryAt))}</div>
             </div>
             <div class="rp-actions">
@@ -551,19 +515,10 @@
           ${hasCrafting ? "" : `<div class="rp-muted">Load crafting data once so the planner can match selected runes to recipes.</div>`}
           ${missingText}
 
-          <div class="rp-resource-title" style="margin-top:10px;">Processed Materials</div>
           <div class="rp-scroll">
             <table class="rp-table">
               <thead><tr><th>Material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead>
               <tbody>${materialRows(plan.processed, true)}</tbody>
-            </table>
-          </div>
-
-          <div class="rp-resource-title" style="margin-top:10px;">Raw Equivalent</div>
-          <div class="rp-scroll">
-            <table class="rp-table">
-              <thead><tr><th>Raw material</th><th>Need</th><th>Have</th><th>Missing</th></tr></thead>
-              <tbody>${materialRows(plan.raw, true)}</tbody>
             </table>
           </div>
         </div>
