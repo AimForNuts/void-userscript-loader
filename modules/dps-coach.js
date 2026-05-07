@@ -2842,15 +2842,16 @@
         <table class="dps-table">
           <thead>
             <tr>
-              <th>Zone</th>
               <th>Time</th>
+              <th>Zone</th>
+              <th>Monster</th>
+              <th>Hunt All</th>
               <th>XP/hr</th>
               <th>Gold/hr</th>
               <th>Shards/hr</th>
               <th>Kills/hr</th>
               <th>Deaths</th>
               <th>Accuracy</th>
-              <th>Last seen</th>
             </tr>
           </thead>
           <tbody>
@@ -2858,24 +2859,26 @@
                 const accuracy = getZoneAccuracy(row);
                 const name = formatZoneNameForDisplay(row);
                 const isCurrent = row.key === currentKey;
+                const huntAllLabel = row.huntAll ? "Yes" : "No";
 
                 return `
                   <tr>
-                    <td>${isCurrent ? "▶ " : ""}${escapeHtml(name)}</td>
                     <td>${escapeHtml(formatZoneTrackedTime(row))}</td>
+                    <td>${isCurrent ? "▶ " : ""}${escapeHtml(name)}</td>
+                    <td>${escapeHtml(row.monsterName || "—")}</td>
+                    <td>${escapeHtml(huntAllLabel)}</td>
                     <td class="dps-blue">${formatNumber(getZoneRate(row, "xp"))}</td>
                     <td class="dps-warn">${formatNumber(getZoneRate(row, "gold"))}</td>
                     <td class="dps-purple">${formatNumber(getZoneRate(row, "shards"))}</td>
                     <td>${formatNumber(getZoneRate(row, "kills"))}</td>
                     <td class="${Number(row.deaths || 0) > 0 ? "dps-bad" : ""}">${formatNumber(row.deaths)}</td>
                     <td class="${accuracy >= 90 ? "dps-good" : accuracy >= 75 ? "dps-warn" : accuracy > 0 ? "dps-bad" : "dps-muted"}">${pct(accuracy)}</td>
-                    <td class="dps-muted">${escapeHtml(formatTime(row.lastSeenAt))}</td>
                   </tr>
                 `;
             }).join("")}
           </tbody>
         </table>
-      ` : `<div class="dps-muted">No zone stats yet. Fight in a zone to start tracking rates, deaths, and accuracy.</div>`}
+      ` : `<div class="dps-muted">No zone stats yet. Change your zone or monster to start tracking.</div>`}
     `;
         }
 
