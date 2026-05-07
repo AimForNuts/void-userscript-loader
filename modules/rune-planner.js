@@ -505,6 +505,30 @@
       return lines;
     }
 
+    function getGroupedRuneCopyLines(counts = getActiveCounts()) {
+      const lines = [];
+      for (const cat of RUNE_CATEGORIES) {
+        const catLines = [];
+        for (const rune of cat.runes) {
+          for (let tier = 1; tier <= MAX_TIER; tier += 1) {
+            const count = getCount(rune.name, tier, counts);
+            if (count <= 0) continue;
+            const priorParts = [];
+            for (let priorTier = 1; priorTier < tier; priorTier += 1) {
+              priorParts.push(`t${priorTier} x ${count}`);
+            }
+            const priorText = priorParts.length ? ` (also craft/share ${priorParts.join(" + ")})` : "";
+            catLines.push(`${rune.name} rune t${tier} x ${count}${priorText}`);
+          }
+        }
+        if (catLines.length) {
+          if (lines.length) lines.push("");
+          lines.push(`${cat.label}:`, ...catLines);
+        }
+      }
+      return lines;
+    }
+
     function getResourceLines(plan) {
       return Object.keys(plan?.processed || {})
         .filter((id) => RESOURCE_IDS.has(id))
@@ -558,12 +582,13 @@
     }
 
     async function exportToClipboard(app) {
-      const lines = getSelectedLines();
+      const counts = getActiveCounts();
+      const lines = getGroupedRuneCopyLines(counts);
       if (!lines.length) {
         showMessage(app, "⚠ Nothing selected", "#ffa726");
         return;
       }
-      const resourceLines = getResourceLines(selectedRunePlan());
+      const resourceLines = getResourceLines(selectedRunePlan(counts));
       const copied = await copyText([
         "Runes:",
         ...lines,
