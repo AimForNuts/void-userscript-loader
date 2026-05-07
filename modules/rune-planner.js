@@ -401,6 +401,13 @@
       return lines;
     }
 
+    function getResourceLines(plan) {
+      return Object.keys(plan?.processed || {})
+        .filter((id) => RESOURCE_IDS.has(id))
+        .sort((a, b) => displayName(a).localeCompare(displayName(b)))
+        .map((id) => `${id} x ${fmt(plan.processed[id])}`);
+    }
+
     function getSelectedTotal() {
       let total = 0;
       for (const cat of RUNE_CATEGORIES) {
@@ -452,7 +459,14 @@
         showMessage(app, "⚠ Nothing selected", "#ffa726");
         return;
       }
-      const copied = await copyText(lines.join("\n"));
+      const resourceLines = getResourceLines(selectedRunePlan());
+      const copied = await copyText([
+        "Runes:",
+        ...lines,
+        "",
+        "Resources:",
+        ...(resourceLines.length ? resourceLines : ["None"]),
+      ].join("\n"));
       if (copied) {
         state.lastCopiedAt = Date.now();
         showMessage(app, "✓ Copied!", "#69f0ae");
