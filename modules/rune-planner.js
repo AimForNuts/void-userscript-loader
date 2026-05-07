@@ -425,19 +425,28 @@
       const processed = {};
       const selections = [];
       const missingRecipes = [];
+      const missingRecipeSet = new Set();
       for (const cat of RUNE_CATEGORIES) {
         for (const rune of cat.runes) {
           for (let tier = 1; tier <= MAX_TIER; tier += 1) {
             const qty = getCount(rune.name, tier, counts);
             if (qty <= 0) continue;
-            const recipe = findRuneRecipe(rune.name, tier);
-            if (!recipe) {
-              missingRecipes.push(`${rune.name} T${tier}`);
-              continue;
+            const craftSteps = [];
+            for (let craftTier = 1; craftTier <= tier; craftTier += 1) {
+              const recipe = findRuneRecipe(rune.name, craftTier);
+              if (!recipe) {
+                const missing = `${rune.name} T${craftTier}`;
+                if (!missingRecipeSet.has(missing)) {
+                  missingRecipeSet.add(missing);
+                  missingRecipes.push(missing);
+                }
+                continue;
+              }
+              const mats = directMaterials(recipe);
+              mergeInto(processed, mats, qty);
+              craftSteps.push({ id: recipe.id, name: recipe.name, tier: craftTier, materials: mats });
             }
-            const mats = directMaterials(recipe);
-            mergeInto(processed, mats, qty);
-            selections.push({ id: recipe.id, name: recipe.name, tier, qty, materials: mats });
+            selections.push({ name: rune.name, tier, qty, craftSteps });
           }
         }
       }
