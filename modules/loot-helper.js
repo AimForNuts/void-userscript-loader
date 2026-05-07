@@ -590,6 +590,21 @@
     };
   }
 
+  // Fraction of max mana regenerated per 10s via pool-based sources (ability tree %, auras, etc.)
+  // Derived by subtracting direct gear regen from the char-screen total, then dividing by max mana.
+  function poolRegenFraction() {
+    if (!state.maxManaStat || !state.manaRegen) return 0;
+    let gearDirect = 0;
+    for (const item of Object.values(state.equipped)) {
+      const src = item.stats ?? {};
+      for (const [k, v] of Object.entries(src)) {
+        if (k === "_qualities") continue;
+        if (normStatKey(k) === "manaRegen") gearDirect += v;
+      }
+    }
+    return Math.max(0, state.manaRegen - gearDirect) / state.maxManaStat;
+  }
+
   function selfCtx() {
     if (state.atkPhys != null && state.atkSpeed != null) return state;
     if (!Object.keys(state.equipped).length) return state;
@@ -995,18 +1010,21 @@
       }
     }
 
-    // Combined mana score: base pool delta + base regen delta × 3 (no allStats amplification)
+    // ∆ Sustainability: direct regen change + indirect change via pool-based % recovery
     let manaDeltaHtml = "";
     {
-      const manaDelta   = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
       const mregenDelta = (ttStats.manaRegen ?? 0) - (eqBaseStats.manaRegen ?? 0);
-      if (manaDelta !== 0 || mregenDelta !== 0) {
-        const score = manaDelta + mregenDelta * 6;
+      const manaDelta   = (ttStats.mana      ?? 0) - (eqBaseStats.mana      ?? 0);
+      const poolFrac    = poolRegenFraction();
+      const effectiveMregenDelta = mregenDelta + manaDelta * poolFrac;
+      if (Math.abs(effectiveMregenDelta) >= 0.01) {
+        const score = effectiveMregenDelta * 6;
         if (Math.abs(score) >= 1) {
           const sign = score >= 0 ? "+" : "";
           const col  = score > 0 ? "#60a5fa" : "#f87171";
           const SEP  = `style="padding:3px 0;border-top:1px solid rgba(255,255,255,.06);margin-top:4px"`;
-          manaDeltaHtml = `<div class="sg-row" ${SEP} title="Mana Score = ΔPool + ΔRegen×6"><span class="sg-key">∆ Mana</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
+          const tip  = `∆ Sustain = (ΔRegen ${mregenDelta >= 0 ? "+" : ""}${fmtDec(mregenDelta)} + ΔPool ${manaDelta >= 0 ? "+" : ""}${manaDelta} × ${fmtDec(poolFrac * 100, 2)}%) × 6`;
+          manaDeltaHtml = `<div class="sg-row" ${SEP} title="${esc(tip)}"><span class="sg-key">∆ Sustain</span><span style="color:${col};font-weight:700">${sign}${Math.round(score)}</span></div>`;
         }
       }
     }
@@ -4423,7 +4441,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.37.0',
+    version:     '8.39.0',
     category:    'fighter',
   });
 })();
