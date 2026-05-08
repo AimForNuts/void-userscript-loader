@@ -464,13 +464,14 @@
         }
 
         function syncCurrentZoneFromDom() {
-            const domZone = detectCurrentZoneNameFromDom();
             const domTier = detectCurrentZoneTierFromDom();
 
-            if (domZone && domZone !== "Unknown Zone") {
-                const socketZoneIsFresh = state.lastSocketZoneAt && now() - state.lastSocketZoneAt < 3500;
-
-                if (!socketZoneIsFresh || !state.zoneId || state.zoneId === "Unknown Zone") {
+            // Only fall back to DOM zone name when set-zone has never fired.
+            // Once setZoneReady is true, the intercepted zone data is authoritative —
+            // overwriting with DOM text creates malformed keys (e.g. "fighting-in-zone").
+            if (!state.setZoneReady) {
+                const domZone = detectCurrentZoneNameFromDom();
+                if (domZone && domZone !== "Unknown Zone") {
                     state.zoneId = domZone;
                     state.lastDomZoneAt = now();
                 }
@@ -4385,7 +4386,7 @@
                     }
 
                     syncCurrentZoneFromDom();
-                    touchCurrentZone();
+                    touchCurrentZone(true);
                     pruneRollingEvents();
                     sendTeamSnapshot();
                     queueRender(app);
