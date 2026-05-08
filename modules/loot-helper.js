@@ -35,7 +35,9 @@
 
   // Total stat slots per rarity (1 primary + bonus slots: Common 0, Rare 1, Epic 2, Legendary 3, Mythic 4)
   // Fewer unique stats than slots = a stat was multi-rolled
-  const RARITY_STAT_SLOTS = { COMMON:1, RARE:2, EPIC:3, LEGENDARY:4, MYTHIC:5 };
+  const RARITY_STAT_SLOTS        = { COMMON:1, RARE:2, EPIC:3, LEGENDARY:4, MYTHIC:5 };
+  // Weapons have 1 fewer slot per rarity (no 4th/5th bonus slot)
+  const WEAPON_RARITY_STAT_SLOTS = { COMMON:1, RARE:1, EPIC:2, LEGENDARY:3, MYTHIC:4 };
 
   // Primary stat multiplier by rarity (applied on top of base × tier)
   const RARITY_MULT = { COMMON:1.00, RARE:1.10, EPIC:1.25, LEGENDARY:1.40, MYTHIC:1.85 };
@@ -912,7 +914,8 @@
     // Score + recommendation using active filter
     const activeFC      = state.filters.get(state.activeFilterKey) ?? mkFC([]);
     const itemStatKeys  = new Set(Object.keys(ttStats));
-    const maxSlots      = RARITY_STAT_SLOTS[rarity.toUpperCase()] ?? 4;
+    const chatSlotTable = slot === "Weapon" ? WEAPON_RARITY_STAT_SLOTS : RARITY_STAT_SLOTS;
+    const maxSlots      = chatSlotTable[rarity.toUpperCase()] ?? 4;
     const multiRollCount = Math.max(0, maxSlots - itemStatKeys.size);
     const priorityUps   = diffs.filter(d => d.isUp && activeFC.stats.has(d.stat)).length;
     const hasPriorityMR = multiRollCount > 0 && [...itemStatKeys].some(s => activeFC.stats.has(s));
@@ -1477,7 +1480,8 @@
 
     // Multi-roll detection: item.stats has exactly the rolled stat count (no rune extras)
     const rawStatCount   = Object.keys(item.stats).filter(k => k !== "_qualities").length;
-    const maxSlots       = RARITY_STAT_SLOTS[rarity] ?? 4;
+    const slotTable      = slotType === "Weapon" ? WEAPON_RARITY_STAT_SLOTS : RARITY_STAT_SLOTS;
+    const maxSlots       = slotTable[rarity] ?? 4;
     const multiRollCount = Math.max(0, maxSlots - rawStatCount);
     const itemStatKeys   = new Set(Object.keys(ownBaseStats));
 
@@ -4704,7 +4708,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.45.2',
+    version:     '8.45.3',
     category:    'fighter',
   });
 })();
