@@ -368,6 +368,42 @@
             state.lastSocketZoneAt = now();
         }
 
+        function installSetZoneInterceptor() {
+            // Tampermonkey runs in a sandboxed window — patching window.fetch here
+            // only affects the sandbox, not the page's fetch. Inject a <script> tag
+            // so the patch runs in page context (same as DevTools console). The
+            // injected script communicates back via CustomEvent, which crosses the
+            // sandbox boundary through the shared DOM.
+            const EVENT = "__voidSetZone";
+            if (window.__voidSetZoneListening) return;
+            window.__voidSetZoneListening = true;
+
+            window.addEventListener(EVENT, (e) => {
+                try { handleSetZone(JSON.parse(e.detail)); } catch {}
+            });
+
+            const script = document.createElement("script");
+            script.textContent = `(function(){
+                if (window.__voidSetZoneHooked) return;
+                const _orig = window.fetch;
+                window.fetch = async function(...args) {
+                    const url = typeof args[0]==='string' ? args[0] : (args[0]?.url ?? '');
+                    const method = String(args[1]?.method || args[0]?.method || 'GET').toUpperCase();
+                    if (/\\/api\\/party\\/set-zone/i.test(url) && method === 'POST') {
+                        try {
+                            const body = typeof args[1]?.body === 'string' ? args[1].body
+                                : typeof args[0]?.body === 'string' ? args[0].body : null;
+                            if (body) window.dispatchEvent(new CustomEvent('${EVENT}', { detail: body }));
+                        } catch {}
+                    }
+                    return _orig.apply(this, args);
+                };
+                window.__voidSetZoneHooked = true;
+            })();`;
+            document.documentElement.appendChild(script);
+            script.remove();
+        }
+
         function parseZoneTier(value) {
             const text = String(value || "");
             const match = text.match(/(?:\bD|\bT|Tier\s*)(\d+)/i);
@@ -4245,7 +4281,7 @@
             ...definition,
 
             init(app) {
-                app.events.on("fetch:set-zone", (body) => handleSetZone(body));
+                installSetZoneInterceptor();
                 appRef = app;
                 app.ui.registerPanel({
                   id: definition.id,
