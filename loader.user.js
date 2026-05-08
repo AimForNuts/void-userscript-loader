@@ -216,81 +216,35 @@
   }
 
   // ─── SOCKET CORE ────────────────────────────────────────────────────────────
+  // Tampermonkey runs in a sandboxed context — window.WebSocket = X only patches
+  // the sandbox window, not the page's. The game creates its WebSocket connections
+  // from page context, so we must inject a <script> tag (same pattern as the
+  // set-zone fetch interceptor) to hook WebSocket in page context, then relay
+  // incoming messages back to the sandbox via CustomEvent.
     const SocketCore = {
         init(app) {
-            const NativeWebSocket = window.WebSocket;
-            if (!NativeWebSocket || NativeWebSocket.__voididleLoaderHooked) return;
+            const EVENT = "__voidSocketMsg";
 
-            window.__VoidIdleNativeWebSocket = window.__VoidIdleNativeWebSocket || NativeWebSocket;
+            if (window.__voidSocketListening) return;
+            window.__voidSocketListening = true;
 
-            function parseSocketPayload(raw) {
-                if (typeof raw !== "string") {
-                    return {
-                        parsed: null,
-                        raw,
-                        rawType: typeof raw,
-                        parseError: "",
-                    };
-                }
-
-                let text = raw;
-
-                // Some socket wrappers prefix frames before JSON. Keep this tolerant.
-                const arrayStart = text.indexOf("[");
-                const objectStart = text.indexOf("{");
-                const start = Math.min(
-                    arrayStart === -1 ? Infinity : arrayStart,
-                    objectStart === -1 ? Infinity : objectStart
-                );
-
-                if (start !== Infinity && start > 0) {
-                    text = text.slice(start);
-                }
-
+            window.addEventListener(EVENT, (e) => {
                 try {
-                    return {
-                        parsed: JSON.parse(text),
-                        raw,
-                        rawType: "string",
-                        parseError: "",
-                    };
-                } catch (err) {
-                    return {
-                        parsed: null,
-                        raw,
-                        rawType: "string",
-                        parseError: String(err),
-                    };
-                }
-            }
+                    const raw = e.detail;
+                    if (typeof raw !== "string") return;
 
-            function emitSocketDebug(direction, url, raw) {
-                const parsed = parseSocketPayload(raw);
+                    // Tolerate frames prefixed before the JSON object/array.
+                    let text = raw;
+                    const arrayStart = text.indexOf("[");
+                    const objectStart = text.indexOf("{");
+                    const start = Math.min(
+                        arrayStart === -1 ? Infinity : arrayStart,
+                        objectStart === -1 ? Infinity : objectStart
+                    );
+                    if (start !== Infinity && start > 0) text = text.slice(start);
 
-                app.events.emit("socket:debug", {
-                    direction,
-                    url: String(url || ""),
-                    ts: Date.now(),
-                    raw: parsed.raw,
-                    rawType: parsed.rawType,
-                    parseError: parsed.parseError,
-                    parsed: parsed.parsed,
-                    type: parsed.parsed && typeof parsed.parsed === "object" && !Array.isArray(parsed.parsed)
-                        ? String(parsed.parsed.type || "")
-                        : Array.isArray(parsed.parsed)
-                            ? "array"
-                            : "",
-                });
-
-                return parsed.parsed;
-            }
-
-            function HookedWebSocket(...args) {
-                const socket = new NativeWebSocket(...args);
-                const socketUrl = args[0];
-
-                socket.addEventListener("message", (event) => {
-                    const msg = emitSocketDebug("IN", socketUrl, event.data);
+                    let msg;
+                    try { msg = JSON.parse(text); } catch { return; }
 
                     if (!msg || typeof msg !== "object" || Array.isArray(msg)) return;
 
@@ -300,27 +254,36 @@
 
                     app.events.emit("socket:message", msg);
                     app.events.emit(msg.type, msg);
-                });
+                } catch {}
+            });
 
-                const nativeSend = socket.send;
-
-                socket.send = function patchedSend(data) {
-                    emitSocketDebug("OUT", socketUrl, data);
-
-                    return nativeSend.apply(this, arguments);
-                };
-
-                return socket;
-            }
-
-            HookedWebSocket.prototype = NativeWebSocket.prototype;
-            HookedWebSocket.CONNECTING = NativeWebSocket.CONNECTING;
-            HookedWebSocket.OPEN = NativeWebSocket.OPEN;
-            HookedWebSocket.CLOSING = NativeWebSocket.CLOSING;
-            HookedWebSocket.CLOSED = NativeWebSocket.CLOSED;
-            HookedWebSocket.__voididleLoaderHooked = true;
-
-            window.WebSocket = HookedWebSocket;
+            const script = document.createElement("script");
+            script.textContent = `(function(){
+                if (window.__voidSocketPageHooked) return;
+                window.__voidSocketPageHooked = true;
+                const _NativeWS = window.WebSocket;
+                window.__VoidIdleNativeWebSocket = _NativeWS;
+                function HookedWebSocket(...args) {
+                    const socket = new _NativeWS(...args);
+                    socket.addEventListener("message", function(event) {
+                        try {
+                            if (typeof event.data === "string") {
+                                window.dispatchEvent(new CustomEvent("${EVENT}", { detail: event.data }));
+                            }
+                        } catch {}
+                    });
+                    return socket;
+                }
+                HookedWebSocket.prototype = _NativeWS.prototype;
+                HookedWebSocket.CONNECTING = _NativeWS.CONNECTING;
+                HookedWebSocket.OPEN = _NativeWS.OPEN;
+                HookedWebSocket.CLOSING = _NativeWS.CLOSING;
+                HookedWebSocket.CLOSED = _NativeWS.CLOSED;
+                HookedWebSocket.__voididleLoaderHooked = true;
+                window.WebSocket = HookedWebSocket;
+            })();`;
+            (document.head || document.documentElement).appendChild(script);
+            script.remove();
         },
     };
 
