@@ -7,6 +7,7 @@
       badge: null,
       observer: null,
       unsub: null,
+      fetchUnsub: null,
     };
 
     const GUILD_SELECTORS = [
@@ -73,7 +74,12 @@
       const wrap = document.createElement('div');
       wrap.innerHTML = renderBadgeHtml();
       const badge = wrap.firstElementChild;
-      container.prepend(badge);
+      const anchor = container.querySelector('.guild-xp-section');
+      if (anchor) {
+        anchor.after(badge);
+      } else {
+        container.prepend(badge);
+      }
       state.badge = badge;
     }
 
@@ -123,30 +129,50 @@
       }
     }
 
-    function installFetchHook(app) {
-      if (window.__voidGuildHelperFetchHooked) return;
-      window.__voidGuildHelperFetchHooked = true;
+    // Patch window.fetch in the page context via script-tag injection (same
+    // pattern as SocketCore for WebSocket) so the intercept survives
+    // Tampermonkey's sandbox isolation. The page-side script dispatches a
+    // CustomEvent with the JSON payload; we listen for it in sandbox context
+    // and relay it onto the app event bus.
+    const RELAY_EVENT = '__voidGuildHelperData';
 
-      const _orig = window.fetch;
-      window.fetch = async function (...args) {
-        const url = typeof args[0] === 'string'
-          ? args[0]
-          : (args[0]?.url || '');
-        const res = await _orig.apply(this, args);
-        if (/\/api\/guild($|\?)/i.test(url)) {
-          res.clone().json().then(data => {
-            app.events.emit('guild-helper:data', data);
-          }).catch(() => {});
-        }
-        return res;
+    function installFetchHook(app) {
+      if (!window.__voidGuildHelperPageHooked) {
+        window.__voidGuildHelperPageHooked = true;
+        const script = document.createElement('script');
+        script.textContent = `(function(){
+          if (window.__voidGuildHelperFetchPatched) return;
+          window.__voidGuildHelperFetchPatched = true;
+          const _orig = window.fetch;
+          window.fetch = async function(...args) {
+            const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+            const res = await _orig.apply(this, args);
+            if (/\\/api\\/guild($|\\?)/i.test(url)) {
+              res.clone().json().then(data => {
+                window.dispatchEvent(new CustomEvent('${RELAY_EVENT}', { detail: JSON.stringify(data) }));
+              }).catch(() => {});
+            }
+            return res;
+          };
+        })()`;
+        document.documentElement.appendChild(script);
+        script.remove();
+      }
+
+      const handler = (e) => {
+        try {
+          app.events.emit('guild-helper:data', JSON.parse(e.detail));
+        } catch {}
       };
+      window.addEventListener(RELAY_EVENT, handler);
+      return () => window.removeEventListener(RELAY_EVENT, handler);
     }
 
     return {
       ...definition,
 
       init(app) {
-        installFetchHook(app);
+        state.fetchUnsub = installFetchHook(app);
         startObserver();
 
         state.unsub = app.events.on('guild-helper:data', (data) => {
@@ -171,6 +197,10 @@
           state.unsub();
           state.unsub = null;
         }
+        if (state.fetchUnsub) {
+          state.fetchUnsub();
+          state.fetchUnsub = null;
+        }
       },
     };
   }
@@ -180,7 +210,7 @@
     id:          'guild-helper',
     name:        'Guild Helper',
     icon:        '🏛',
-    version:     '2026-05-08.1',
+    version:     '2026-05-08.2',
     description: 'Shows vault gold vs next level cost when visiting the guild page.',
   });
 })();
