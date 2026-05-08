@@ -977,7 +977,9 @@
       const newSpdPct      = ttStats.atkSpeed    ?? 0;
       const baseATK        = sc.atkPhys / (1 + curAllStats / 100);
       const newAtk         = (baseATK + atkDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-      const newSpd         = sc.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
+      const _wBase         = WEAPON_BASE_SPEED[(state.equipped?.["Weapon"]?.type ?? "").toLowerCase()] ?? sc.atkSpeed;
+      const _totSpd        = (_wBase / sc.atkSpeed - 1) * 100;
+      const newSpd         = _wBase / (1 + (_totSpd - eqSpdPct + newSpdPct) / 100);
       const newCrit        = (sc.critChance ?? 0) + (ttStats.critChance ?? 0) - (eqBaseStats.critChance ?? 0);
       const newCritD       = (sc.critDmg    ?? 0) + (ttStats.critDmg    ?? 0) - (eqBaseStats.critDmg    ?? 0);
       if (curDPS != null && newAtk > 0 && newSpd > 0) {
@@ -2766,7 +2768,9 @@
     const newSpdPct     = item.ownBaseStats.atkSpeed   ?? 0;
     const baseATK       = ctx.atkPhys / (1 + curAllStats / 100);
     const newAtk        = (baseATK + atkDelta) * (1 + (curAllStats + allStatsDelta) / 100);
-    const newSpd        = ctx.atkSpeed * (1 + eqSpdPct / 100) / (1 + newSpdPct / 100);
+    const _wBase        = WEAPON_BASE_SPEED[(state.equipped?.["Weapon"]?.type ?? "").toLowerCase()] ?? ctx.atkSpeed;
+    const _totSpd       = (_wBase / ctx.atkSpeed - 1) * 100;
+    const newSpd        = _wBase / (1 + (_totSpd - eqSpdPct + newSpdPct) / 100);
     const newCrit       = (ctx.critChance ?? 0) + (item.ownBaseStats.critChance ?? 0) - (item.eqBaseStats.critChance ?? 0);
     const newCritD      = (ctx.critDmg    ?? 0) + (item.ownBaseStats.critDmg    ?? 0) - (item.eqBaseStats.critDmg    ?? 0);
     if (newAtk <= 0 || newSpd <= 0) return null;
@@ -4708,7 +4712,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.45.3',
+    version:     '8.45.4',
     category:    'fighter',
   });
 })();
