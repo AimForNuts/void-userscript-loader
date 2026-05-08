@@ -814,20 +814,27 @@
             existing.lastSeenAt = ts;
             existing.activeMs = Number(existing.activeMs || 0);
 
+            // Credit elapsed time to whichever record was active before this tick.
+            // In hunt-all mode the game cycles set-zone every rotation, so changedZone
+            // is true on nearly every tick. Moving time credit here means each monster
+            // accumulates the seconds it was actually active, regardless of cycling.
+            if (trackTime && state.zoneStatsLastTickAt) {
+                const elapsedMs = ts - Number(state.zoneStatsLastTickAt);
+                if (elapsedMs > 0 && elapsedMs <= 15_000) {
+                    if (changedZone && previousKey && state.zoneStats[previousKey]) {
+                        state.zoneStats[previousKey].activeMs =
+                            Number(state.zoneStats[previousKey].activeMs || 0) + elapsedMs;
+                    } else if (!changedZone) {
+                        existing.activeMs += elapsedMs;
+                    }
+                }
+            }
+            state.zoneStatsLastTickAt = ts;
+
             if (changedZone) {
                 existing.sessions = Number(existing.sessions || 0) + 1;
                 state.lastZoneStatsKey = key;
-                state.zoneStatsLastTickAt = ts;
                 beginZoneVisit(existing, totals);
-            } else if (trackTime) {
-                const previousTickAt = Number(state.zoneStatsLastTickAt || 0);
-                const elapsedMs = previousTickAt ? ts - previousTickAt : 0;
-
-                if (previousTickAt && elapsedMs > 0 && elapsedMs <= 15_000) {
-                    existing.activeMs += elapsedMs;
-                }
-
-                state.zoneStatsLastTickAt = ts;
             }
 
             syncZoneRecordFromSummary(existing, totals);
