@@ -28,6 +28,12 @@
       return Number(n || 0).toLocaleString() + 'g';
     }
 
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+      }[c]));
+    }
+
     function renderBadgeHtml() {
       const guild = state.guildData?.guild || state.guildData || {};
       const vaultGold = guild.vaultGold || 0;
@@ -38,7 +44,7 @@
 
       const goldStatus = goldOk
         ? `<span style="color:#4ade80">✓</span>`
-        : `<span style="color:#fbbf24">(need ${formatGold(deficit)} more)</span>`;
+        : `<span style="color:#fbbf24">(need ${escapeHtml(formatGold(deficit))} more)</span>`;
 
       const readyRow = canClaim
         ? `<div style="color:#4ade80;margin-top:6px;font-weight:700">✅ Ready to level!</div>`
@@ -57,8 +63,8 @@
         min-width:200px;
       ">
         <div style="font-weight:800;margin-bottom:6px">🏛 Guild Helper</div>
-        <div>Next level cost: <strong>${formatGold(cost)}</strong></div>
-        <div>Vault gold: <strong>${formatGold(vaultGold)}</strong> ${goldStatus}</div>
+        <div>Next level cost: <strong>${escapeHtml(formatGold(cost))}</strong></div>
+        <div>Vault gold: <strong>${escapeHtml(formatGold(vaultGold))}</strong> ${goldStatus}</div>
         ${readyRow}
       </div>`;
     }
