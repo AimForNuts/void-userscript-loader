@@ -814,7 +814,7 @@
       // Base value: two-group format "(65%)(51)" → base=51; fallback single-group "(4)" → base=4
       const rowText    = row.textContent ?? "";
       const baseMatch  = rowText.match(/\([^)]+\)\s*\(([0-9.]+%?)\)/)
-                      ?? rowText.match(/\(([0-9]+(?:\.[0-9]+)?)\)/);
+                      ?? rowText.match(/\(([0-9]+(?:\.[0-9]+)?)%?\)/);
       const baseValue  = baseMatch ? parseFloat(baseMatch[1]) : totalValue;
       const key = TOOLTIP_STAT_MAP[label];
       if (key && !isNaN(totalValue)) {
@@ -4704,7 +4704,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.45.1',
+    version:     '8.45.2',
     category:    'fighter',
   });
 })();
