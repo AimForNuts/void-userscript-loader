@@ -811,9 +811,10 @@
       const valText    = valueEl.textContent ?? "";
       const totalMatch = rawText.match(/[+-]?[0-9]+\.?[0-9]*/) ?? valText.match(/[+-]?[0-9]+\.?[0-9]*/);
       const totalValue = totalMatch ? parseFloat(totalMatch[0]) : NaN;
-      // Base value is the second parenthesized group: "ATK+90 (65%)(51)" → base=51
+      // Base value: two-group format "(65%)(51)" → base=51; fallback single-group "(4)" → base=4
       const rowText    = row.textContent ?? "";
-      const baseMatch  = rowText.match(/\([^)]+\)\s*\(([0-9.]+%?)\)/);
+      const baseMatch  = rowText.match(/\([^)]+\)\s*\(([0-9.]+%?)\)/)
+                      ?? rowText.match(/\(([0-9]+(?:\.[0-9]+)?)\)/);
       const baseValue  = baseMatch ? parseFloat(baseMatch[1]) : totalValue;
       const key = TOOLTIP_STAT_MAP[label];
       if (key && !isNaN(totalValue)) {
@@ -4703,7 +4704,7 @@
     name:        '⚡ Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.45.0',
+    version:     '8.45.1',
     category:    'fighter',
   });
 })();
