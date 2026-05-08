@@ -317,7 +317,7 @@
    * TEAM PROFILES
    **************************************************************************/
 
-  // Key used with _moduleApp.storage (loader adds "voididle.module.loot-helper." prefix → GM storage)
+  // Key used with _moduleApp.storage (loader adds "voididle.module.tecsor-loot-helper." prefix → GM storage)
   const TRACKED_KEY = "sgTrackedProfiles";
   let trackedProfiles = {}; // populated by loadTrackedProfiles() during boot()
 
