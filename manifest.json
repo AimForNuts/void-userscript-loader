@@ -1,5 +1,5 @@
 {
-  "version": "2026-05-08.11",
+  "version": "2026-05-08.12",
   "categories": [
     { "id": "misc",    "label": "Misc"    },
     { "id": "fighter", "label": "Fighter" },
@@ -12,7 +12,8 @@
       "icon": "👁️",
       "description": "Tracks who is using the tool (AimForNuts only).",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/presence-tracker.js",
-      "version": "2026-05-05.1",
+      "version": "2026-05-08.1",
+      "integrity": "sha256-nSbfEf8E+Pym1jVCmEN+Yi9NDMOJUlSgHbAic4kxwCA=",
       "category": "misc",
       "enabled": true,
       "hidden": true,
@@ -25,6 +26,7 @@
       "description": "Capture WebSocket messages with filters for world boss debugging.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/ws-sniffer.js",
       "version": "2026-04-30.1",
+      "integrity": "sha256-rYNTiW/HmOuZmWWSjBYHsjTQDjqNrmT5oG0iE9XOJ50=",
       "category": "misc",
       "enabled": true,
       "dependencies": ["core"]
@@ -36,6 +38,7 @@
       "description": "Tracks world boss history, fighters, and DPS leaderboards.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/boss-tracker.js",
       "version": "2026-04-30.1",
+      "integrity": "sha256-Kn4YltEu+bc00jBI0H78SPgEvXWwUl07L1OHTKAbpbY=",
       "category": "misc",
       "enabled": true,
       "dependencies": ["core"]
@@ -47,6 +50,7 @@
       "description": "Shows vault gold vs next level cost when visiting the guild page.",
       "url":         "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/guild-helper.js",
       "version":     "2026-05-08.4",
+      "integrity":   "sha256-1SZAfipEHMrO23ijKVkmLP+mBSpbTGs0eIl3FXjeRDw=",
       "category":    "misc",
       "enabled":     true,
       "dependencies": ["core"]
@@ -58,6 +62,7 @@
       "description": "Plan and export rune loadouts by type and tier.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/rune-planner.js",
       "version": "2026-05-07.10",
+      "integrity": "sha256-kMaLgHjlMbVwG2MrEe/njo8Cx28nR/B40jyy3H+826c=",
       "category": "fighter",
       "enabled": true,
       "dependencies": ["core"]
@@ -69,6 +74,7 @@
       "description": "Personal and team DPS tools.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/dps-coach.js",
       "version": "2026-05-08.11",
+      "integrity": "sha256-iU8c2DZlp7fNnp57xm1yRbHM1IOHpv43pGNkKaYVUf4=",
       "category": "fighter",
       "enabled": true,
       "dependencies": ["core"]
@@ -80,6 +86,7 @@
       "description": "Item sharing, mail automation, and salvage tools.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/item-share.js",
       "version": "2026-04-30.1",
+      "integrity": "sha256-RNaC9boED03osLfvMQSwZ1fBXGcgdXXeZEVDlDOCDY8=",
       "category": "fighter",
       "enabled": true,
       "dependencies": ["core"]
@@ -91,6 +98,7 @@
       "description": "Inventory scan, party tools, rune planner, tool planner, and crafting debug.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/party-planner.js",
       "version": "2026-05-01.1",
+      "integrity": "sha256-bRKbQg8v7qkA0NDFC2mLo4MawKzu8swa24uhyNp3rQk=",
       "category": "gather",
       "enabled": true,
       "dependencies": ["core"]
@@ -102,6 +110,7 @@
       "description": "Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/tecSor-loot-helper.js",
       "version": "8.45.4",
+      "integrity": "sha256-RCv2CzgbNrkurBGh2sfnDpSTu/dhbBYmEbC9IvFkSDE=",
       "category": "fighter",
       "enabled": true,
       "dependencies": ["core"]
@@ -112,7 +121,8 @@
       "icon": "⚡",
       "description": "Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/aim-loot-helper.js",
-      "version": "8.45.4",
+      "version": "8.45.5",
+      "integrity": "sha256-hkUCBp63XsQ0VoNFe4XgeyzO56Oy8Vb3yzdvFzsvevY=",
       "category": "fighter",
       "enabled": true,
       "dependencies": ["core"]
@@ -124,6 +134,7 @@
       "description": "Inventory scan, party tools, rune planner, tool planner, crafting debug, and spirit essence trace.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/party-planner-debug.js",
       "version": "2026-05-02.1",
+      "integrity": "sha256-sZ7/SfUc5nJz8d+eKIIHtFjRt+9ZvG45M1nmySxreIw=",
       "category": "gather",
       "enabled": true,
       "dependencies": ["core"]
