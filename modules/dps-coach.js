@@ -563,18 +563,18 @@
         }
 
         function getCurrentZoneKey() {
-            if (!state.setZoneReady) return null;
+            const zoneName = getCurrentZoneName();
+            if (!zoneName || zoneName === "Unknown Zone") return null;
 
             const monsterSlug = state.currentMonsterName
                 ? state.currentMonsterName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
                 : "";
 
-            return getZoneKeyFor(
-                getCurrentZoneName(),
-                getCurrentZoneTier(),
-                monsterSlug,
-                state.huntAll,
-            );
+            // When set-zone hasn't fired we don't know the monster or hunt mode —
+            // pass null so the partial key has no hunt suffix until we know for sure.
+            const huntAll = state.setZoneReady ? state.huntAll : null;
+
+            return getZoneKeyFor(zoneName, getCurrentZoneTier(), monsterSlug, huntAll);
         }
 
         const ZONE_SUMMARY_METRICS = Object.freeze([
@@ -799,7 +799,7 @@
                 zoneName,
                 tier,
                 state.currentMonsterName,
-                state.huntAll,
+                state.setZoneReady ? state.huntAll : null,
             );
             const ts = now();
             const totals = getDpsCoachSummaryTotals();
