@@ -35,7 +35,9 @@ Add an entry to `manifest.json` pointing to any hosted `.js` file.
 
 **🎁 Item Share** — Share item tooltips in chat and within a party, automate mail actions, and access salvage tools from a single panel. Reduces back-and-forth when coordinating loot distribution.
 
-**⚡ Loot Helper** — Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring in one place. A comprehensive loot evaluation suite for quickly triaging drops.
+**⚡ teCsor Loot Helper** — Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring in one place. The original loot evaluation suite by teCsor.
+
+**⚡ Aim Loot Helper** — Independent fork of teCsor Loot Helper maintained by AimForNuts. Starts identical and evolves separately.
 
 ### Gather
 
