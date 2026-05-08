@@ -1581,6 +1581,23 @@
             // Some party ticks do not expose killThisTick/xpGained consistently, so also
             // fall back to visible playerXp/playerGold/spiritShards deltas. This fixes the
             // session Zones tab sitting at 0 while Summary is moving.
+
+            // DIAGNOSTIC: log raw XP fields once every 30s to find actual field names
+            if (!state._xpDiagAt || ts - state._xpDiagAt > 30000) {
+                state._xpDiagAt = ts;
+                const self = getSelfPartyMember(msg);
+                const xpFields = {};
+                for (const k of Object.keys(msg)) {
+                    if (/xp|gold|shard|kill|resource/i.test(k)) xpFields[`msg.${k}`] = msg[k];
+                }
+                if (self) {
+                    for (const k of Object.keys(self)) {
+                        if (/xp|gold|shard|kill|resource/i.test(k)) xpFields[`selfMember.${k}`] = self[k];
+                    }
+                }
+                console.log("[DPS Coach] XP field diagnostic:", xpFields, "| killThisTick:", msg.killThisTick);
+            }
+
             const playerXp = Number(msg.playerXp || 0);
             const playerGold = Number(msg.playerGold || 0);
             const currentShards = Number(msg.spiritShards || msg.shards || 0);

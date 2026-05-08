@@ -1,5 +1,5 @@
 {
-  "version": "2026-05-08.8",
+  "version": "2026-05-08.9",
   "categories": [
     { "id": "misc",    "label": "Misc"    },
     { "id": "fighter", "label": "Fighter" },
@@ -57,7 +57,7 @@
       "icon": "🎯",
       "description": "Personal and team DPS tools.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/dps-coach.js",
-      "version": "2026-05-08.8",
+      "version": "2026-05-08.9",
       "category": "fighter",
       "enabled": true,
       "dependencies": ["core"]
