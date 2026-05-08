@@ -23,7 +23,7 @@ Add an entry to `manifest.json` pointing to any hosted `.js` file.
 
 **👑 Boss Tracker** — Tracks world boss spawn history, records which fighters participated, and maintains DPS leaderboards across sessions. Persists data locally so history survives page reloads.
 
-**🏛 Guild Helper** — Intercepts the guild API response and injects a badge showing vault gold vs next level cost, with a ready-to-level indicator when both XP and gold thresholds are met.
+**🏛 Guild Helper** — Intercepts the guild API response and injects a badge showing vault gold vs next level cost, with a ready-to-level indicator when the server reports the level is claimable.
 
 ### Fighter
 
