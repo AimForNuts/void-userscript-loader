@@ -23,6 +23,8 @@ Add an entry to `manifest.json` pointing to any hosted `.js` file.
 
 **👑 Boss Tracker** — Tracks world boss spawn history, records which fighters participated, and maintains DPS leaderboards across sessions. Persists data locally so history survives page reloads.
 
+**🏛 Guild Helper** — Intercepts the guild API response and injects a badge showing vault gold vs next level cost, with a ready-to-level indicator when both XP and gold thresholds are met.
+
 ### Fighter
 
 **◈ Rune Planner** — Plan rune loadouts by type and tier, then copy the result as a formatted list for Discord or personal notes. Lets you model builds before committing runes.
