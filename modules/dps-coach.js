@@ -369,6 +369,7 @@
         }
 
         function installSetZoneInterceptor() {
+            if (window.fetch._dpsCoachSetZone) return;
             const _orig = window.fetch;
 
             window.fetch = async function (...args) {
@@ -385,6 +386,7 @@
 
                 return _orig.apply(this, args);
             };
+            window.fetch._dpsCoachSetZone = true;
         }
 
         function parseZoneTier(value) {
