@@ -64,10 +64,17 @@ Provides item tooltip sharing in chat and party context, mail automation helpers
 
 ---
 
-### ⚡ Loot Helper
-**ID:** `loot-helper` | **Category:** Fighter | **File:** `modules/loot-helper.js`
+### ⚡ teCsor Loot Helper
+**ID:** `tecsor-loot-helper` | **Category:** Fighter | **File:** `modules/tecSor-loot-helper.js`
 
-Comprehensive loot evaluation suite. Computes stats, DPS, EHP, and roll quality for items, supports gear comparison, and applies multi-filter scoring to surface the best drops. The largest module in the repo by line count (2600+ lines). If you're modifying it, read through the scoring engine at the top of the file before touching anything else.
+Comprehensive loot evaluation suite by teCsor. Computes stats, DPS, EHP, and roll quality for items, supports gear comparison, and applies multi-filter scoring to surface the best drops. The largest module in the repo by line count (4700+ lines). If you're modifying it, read through the scoring engine at the top of the file before touching anything else.
+
+---
+
+### ⚡ Aim Loot Helper
+**ID:** `aim-loot-helper` | **Category:** Fighter | **File:** `modules/aim-loot-helper.js`
+
+Independent fork of teCsor Loot Helper, maintained by AimForNuts. Starts with identical logic and evolves separately. Uses isolated localStorage keys (all prefixed `aim_`) so filter and profile state is independent from the teCsor variant.
 
 ---
 
