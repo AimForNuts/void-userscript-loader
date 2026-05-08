@@ -48,24 +48,28 @@
         : `<span style="color:#fbbf24">(need ${escapeHtml(formatGold(deficit))} more)</span>`;
 
       const readyRow = canClaim
-        ? `<div style="color:#4ade80;margin-top:6px;font-weight:700">✅ Ready to level!</div>`
+        ? `<span style="color:#4ade80;font-weight:700;white-space:nowrap">✅ Ready to level!</span>`
         : '';
 
       return `<div class="gh-badge" style="
-        background:rgba(8,10,15,0.88);
-        border:1px solid rgba(148,163,184,0.35);
-        border-radius:10px;
-        padding:10px 14px;
-        font-family:Arial,sans-serif;
-        font-size:12px;
+        display:flex;
+        align-items:center;
+        flex-wrap:wrap;
+        gap:6px 16px;
+        padding:9px 14px;
+        margin:6px 0;
+        background:rgba(255,255,255,0.04);
+        border:1px solid rgba(148,163,184,0.13);
+        border-radius:8px;
+        font-family:inherit;
+        font-size:13px;
         color:#e5e7eb;
-        margin-bottom:10px;
-        display:inline-block;
-        min-width:200px;
+        box-sizing:border-box;
+        width:100%;
       ">
-        <div style="font-weight:800;margin-bottom:6px">🏛 Guild Helper</div>
-        <div>Next level cost: <strong>${escapeHtml(formatGold(cost))}</strong></div>
-        <div>Vault gold: <strong>${escapeHtml(formatGold(vaultGold))}</strong> ${goldStatus}</div>
+        <span style="font-weight:700;color:#94a3b8;white-space:nowrap">🏛 Guild Helper</span>
+        <span style="white-space:nowrap">Next level: <strong>${escapeHtml(formatGold(cost))}</strong></span>
+        <span style="white-space:nowrap">Vault: <strong>${escapeHtml(formatGold(vaultGold))}</strong> ${goldStatus}</span>
         ${readyRow}
       </div>`;
     }
@@ -210,7 +214,7 @@
     id:          'guild-helper',
     name:        'Guild Helper',
     icon:        '🏛',
-    version:     '2026-05-08.2',
+    version:     '2026-05-08.3',
     description: 'Shows vault gold vs next level cost when visiting the guild page.',
   });
 })();
