@@ -27,6 +27,13 @@ Listens to `socket:message` events for world boss lifecycle messages and builds 
 
 ---
 
+### 🏛 Guild Helper
+**ID:** `guild-helper` | **Category:** Misc | **File:** `modules/guild-helper.js`
+
+Intercepts the game's own `/api/guild` HTTP response (no extra network request) and caches the parsed guild data in module state. When the guild page container appears in the DOM, a small badge is prepended showing the vault gold balance vs the gold cost to claim the next level, plus a "Ready to level!" indicator when `canClaimLevel` is true. The badge is removed when the guild container leaves the DOM. Data stays cached until the next `/api/guild` response is intercepted.
+
+---
+
 ## Fighter
 
 ### ◈ Rune Planner
