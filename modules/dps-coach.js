@@ -353,16 +353,12 @@
         }
 
         function handleSetZone(body) {
-            console.log("[DPS Coach] handleSetZone called:", body);
             const zoneId = String(body?.zoneId || "").trim();
             const monsterId = String(body?.monsterId || "").trim();
             const tier = String(body?.tier ?? "").trim();
             const huntAll = body?.huntAll === true;
 
-            if (!zoneId || !monsterId) {
-                console.log("[DPS Coach] handleSetZone: guard rejected - zoneId:", zoneId, "monsterId:", monsterId);
-                return;
-            }
+            if (!zoneId || !monsterId) return;
 
             state.zoneId = zoneId;
             state.tier = tier;
@@ -370,38 +366,6 @@
             state.huntAll = huntAll;
             state.setZoneReady = true;
             state.lastSocketZoneAt = now();
-            console.log("[DPS Coach] state updated - ready:", state.setZoneReady, "zone:", state.zoneId, "monster:", state.currentMonsterName);
-        }
-
-        function installSetZoneInterceptor() {
-            console.log("[DPS Coach] installSetZoneInterceptor - sentinel:", !!window.fetch._dpsCoachSetZone);
-            if (window.fetch._dpsCoachSetZone) return;
-            const _orig = window.fetch;
-
-            window.fetch = async function (...args) {
-                const url = typeof args[0] === "string" ? args[0] : (args[0]?.url ?? "");
-                const method = String(args[1]?.method || args[0]?.method || "GET").toUpperCase();
-
-                if (/\/api\/party\/set-zone/i.test(url) && method === "POST") {
-                    console.log("[DPS Coach] set-zone intercepted - args[0] type:", typeof args[0], "args[1]?.body type:", typeof args[1]?.body);
-                    try {
-                        let bodyText = typeof args[1]?.body === "string" ? args[1].body
-                            : typeof args[0]?.body === "string" ? args[0].body
-                            : null;
-                        if (bodyText === null && args[0] instanceof Request) {
-                            console.log("[DPS Coach] cloning Request to read body");
-                            bodyText = await args[0].clone().text();
-                        }
-                        console.log("[DPS Coach] bodyText:", bodyText);
-                        if (bodyText) handleSetZone(JSON.parse(bodyText));
-                    } catch (e) {
-                        console.log("[DPS Coach] interceptor error:", e);
-                    }
-                }
-
-                return _orig.apply(this, args);
-            };
-            window.fetch._dpsCoachSetZone = true;
         }
 
         function parseZoneTier(value) {
@@ -4281,7 +4245,7 @@
             ...definition,
 
             init(app) {
-                installSetZoneInterceptor();
+                app.events.on("fetch:set-zone", (body) => handleSetZone(body));
                 appRef = app;
                 app.ui.registerPanel({
                   id: definition.id,

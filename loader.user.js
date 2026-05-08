@@ -324,6 +324,40 @@
         },
     };
 
+  // ─── FETCH CORE ─────────────────────────────────────────────────────────────
+  // Hooked synchronously in Phase 1 (same as SocketCore) so the patch is in
+  // place before the game captures window.fetch at its own startup.
+  const FetchCore = {
+    init(app) {
+      if (window.fetch.__voididleLoaderHooked) return;
+      const _orig = window.fetch;
+
+      window.fetch = async function (...args) {
+        const url = typeof args[0] === "string" ? args[0] : (args[0]?.url ?? "");
+        const method = String(args[1]?.method || args[0]?.method || "GET").toUpperCase();
+
+        if (/\/api\/party\/set-zone/i.test(url) && method === "POST") {
+          try {
+            let bodyText = typeof args[1]?.body === "string" ? args[1].body
+              : typeof args[0]?.body === "string" ? args[0].body
+              : null;
+            const bodyPromise = bodyText !== null
+              ? Promise.resolve(bodyText)
+              : args[0] instanceof Request ? args[0].clone().text() : Promise.resolve(null);
+
+            bodyPromise.then(text => {
+              if (text) app.events.emit("fetch:set-zone", JSON.parse(text));
+            }).catch(() => {});
+          } catch {}
+        }
+
+        return _orig.apply(this, args);
+      };
+
+      window.fetch.__voididleLoaderHooked = true;
+    },
+  };
+
   // ─── RELAY CORE ─────────────────────────────────────────────────────────────
     const RelayCore = {
         relayUrl: "wss://voididle-combat-relay.onrender.com",
@@ -1833,10 +1867,12 @@
 
   // ─── BOOTSTRAP ──────────────────────────────────────────────────────────────
   (function bootstrap() {
-    // Phase 1 — synchronous. WebSocket hook must be installed before any await.
+    // Phase 1 — synchronous. Hooks must be installed before any await so they
+    // are in place before the game captures window.WebSocket / window.fetch.
     window.VoidIdleModules = window.VoidIdleModules || {};
     const app = createApp();
     app.socket.init(app);
+    FetchCore.init(app);
 
     // Phase 2 — async. Runs after the DOM is available.
     function onReady() {
