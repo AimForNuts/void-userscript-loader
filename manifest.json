@@ -46,7 +46,7 @@
       "icon":        "🏛",
       "description": "Shows vault gold vs next level cost when visiting the guild page.",
       "url":         "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/guild-helper.js",
-      "version":     "2026-05-08.2",
+      "version":     "2026-05-08.3",
       "category":    "misc",
       "enabled":     true,
       "dependencies": ["core"]
