@@ -378,9 +378,13 @@
 
                 if (/\/api\/party\/set-zone/i.test(url) && method === "POST") {
                     try {
-                        const body = args[1]?.body || args[0]?.body || "";
-                        const parsed = typeof body === "string" ? JSON.parse(body || "{}") : null;
-                        if (parsed) handleSetZone(parsed);
+                        let bodyText = typeof args[1]?.body === "string" ? args[1].body
+                            : typeof args[0]?.body === "string" ? args[0].body
+                            : null;
+                        if (bodyText === null && args[0] instanceof Request) {
+                            bodyText = await args[0].clone().text();
+                        }
+                        if (bodyText) handleSetZone(JSON.parse(bodyText));
                     } catch { }
                 }
 
