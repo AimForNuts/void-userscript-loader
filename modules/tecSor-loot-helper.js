@@ -1,7 +1,7 @@
 ﻿(function () {
   'use strict';
 
-  function createLootHelperModule(definition) {
+  function createTecSorLootHelperModule(definition) {
 
   let _tickInterval = null;
   let _tooltipObs   = null;
@@ -2089,15 +2089,15 @@
     if (_moduleApp) {
       // Module mode: register with loader's WindowManager — tray button + managed panel
       _moduleApp.ui.registerPanel({
-        id:     "loot-helper",
-        title:  "Loot Helper",
+        id:     "tecsor-loot-helper",
+        title:  "teCsor Loot Helper",
         icon:   "⚡",
         render: _panelShellHtml,
         width:  310,
         height: 580,
         footer: "Produced, maintained & improved by teCsor",
       });
-      panelEl = _moduleApp.ui.getPanel("loot-helper");
+      panelEl = _moduleApp.ui.getPanel("tecsor-loot-helper");
       if (panelEl) _attachTabListeners(panelEl);
     } else {
       // Standalone mode: create own fixed panel
@@ -2105,7 +2105,7 @@
       panelEl.id = "sgPanel";
       panelEl.innerHTML = `
         <div class="sg-drag" id="sgDrag">
-          <span class="sg-title">⚡ Loot Helper <span style="font-size:10px;font-weight:400;color:#4b5563;">v8.46.0</span></span>
+          <span class="sg-title">teCsor Loot Helper <span style="font-size:10px;font-weight:400;color:#4b5563;">v8.46.0</span></span>
           <button class="sg-btn" id="sgHide">Hide</button>
         </div>
         ${_panelShellHtml()}
@@ -4707,9 +4707,9 @@
   }
 
   window.VoidIdleModules = window.VoidIdleModules || {};
-  window.VoidIdleModules['loot-helper'] = createLootHelperModule({
-    id:          'loot-helper',
-    name:        '⚡ Loot Helper',
+  window.VoidIdleModules['tecsor-loot-helper'] = createTecSorLootHelperModule({
+    id:          'tecsor-loot-helper',
+    name:        'teCsor Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
     version:     '8.45.4',
