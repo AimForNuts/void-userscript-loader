@@ -1689,7 +1689,7 @@
    **************************************************************************/
 
   const CSS = `
-    #sgPanel {
+    #aimSgPanel {
       position:fixed; z-index:2147483647;
       left:16px; top:50%; transform:translateY(-50%);
       width:300px; background:#060912; color:#e8eefc;
@@ -1699,8 +1699,8 @@
       overflow:hidden; display:flex; flex-direction:column;
       max-height:calc(100vh - 32px); transition:width .2s ease;
     }
-    #sgPanel.sg-wide { width:480px; }
-    #sgPanel.sg-hidden { display:none; }
+    #aimSgPanel.sg-wide { width:480px; }
+    #aimSgPanel.sg-hidden { display:none; }
 
     .sg-drag {
       display:flex; align-items:center; justify-content:space-between;
@@ -2007,7 +2007,7 @@
     .sg-chat-compare-vs { color:#4b5563; font-size:10px; }
     .sg-chat-compare-hint { color:#4b5563; font-size:10px; font-style:italic; }
 
-    #sgToggle {
+    #aimSgToggle {
       position:fixed; z-index:2147483647;
       left:16px; top:50%; transform:translateY(-50%);
       background:#172554; color:white;
@@ -2036,7 +2036,7 @@
         <button class="sg-tab"        data-tab="history">📜 History</button>
         <button class="sg-tab"        data-tab="rating">⭐ Rating</button>
       </div>
-      <div class="sg-body" id="sgBody"><div class="sg-hint">Waiting for data…</div></div>
+      <div class="sg-body" id="aimSgBody"><div class="sg-hint">Waiting for data…</div></div>
     `;
   }
 
@@ -2104,9 +2104,9 @@
       panelEl = document.createElement("div");
       panelEl.id = "sgPanel";
       panelEl.innerHTML = `
-        <div class="sg-drag" id="sgDrag">
+        <div class="sg-drag" id="aimSgDrag">
           <span class="sg-title">Aim Loot Helper <span style="font-size:10px;font-weight:400;color:#4b5563;">v8.46.0</span></span>
-          <button class="sg-btn" id="sgHide">Hide</button>
+          <button class="sg-btn" id="aimSgHide">Hide</button>
         </div>
         ${_panelShellHtml()}
         <div class="sg-footer">Produced &amp; maintained by <span class="sg-footer-name">AimForNuts</span></div>
@@ -2120,7 +2120,7 @@
       document.documentElement.appendChild(panelEl);
       document.documentElement.appendChild(toggleEl);
 
-      document.getElementById("sgHide").addEventListener("click", () => {
+      document.getElementById("aimSgHide").addEventListener("click", () => {
         panelEl.classList.add("sg-hidden"); toggleEl.style.display = "block";
       });
       toggleEl.addEventListener("click", () => {
@@ -2128,7 +2128,7 @@
       });
 
       _attachTabListeners(panelEl);
-      makeDraggable(panelEl, document.getElementById("sgDrag"));
+      makeDraggable(panelEl, document.getElementById("aimSgDrag"));
     }
   }
 
@@ -2355,9 +2355,9 @@
       if (isEditing) {
         html += `<div class="sg-filter-edit">
           <div class="sg-filter-edit-row">
-            <input class="sg-filter-input" id="sgFeName" value="${esc(fe.name)}" placeholder="Filter name">
-            <button class="sg-btn" id="sgFeSave">Save</button>
-            <button class="sg-btn" id="sgFeCancel">✗</button>
+            <input class="sg-filter-input" id="aimSgFeName" value="${esc(fe.name)}" placeholder="Filter name">
+            <button class="sg-btn" id="aimSgFeSave">Save</button>
+            <button class="sg-btn" id="aimSgFeCancel">✗</button>
           </div>
           <div style="font-size:10px;color:#64748b;margin:2px 0 4px;">Click to cycle: off → ♥ Liked (score ±2) → ★ Preferred (score ±4) → off · ★ on a double-rolled stat = always Interesting</div>
           <div class="sg-pref-grid">`;
@@ -2380,7 +2380,7 @@
     }
 
     html += `</div>
-      <button class="sg-add-btn" id="sgFeAdd">+ New Filter</button>
+      <button class="sg-add-btn" id="aimSgFeAdd">+ New Filter</button>
     </div>`;
 
     if (!fe) {
@@ -2433,8 +2433,8 @@
 
     let html = `<div class="sg-gear-toolbar">
       <div style="display:flex;gap:5px;">
-        <button class="sg-mode-btn${state.gearMode==="slot"?" active":""}" id="sgModeSlot">📦 Slot</button>
-        <button class="sg-mode-btn${state.gearMode==="category"?" active":""}" id="sgModeCat">🏷 Category</button>
+        <button class="sg-mode-btn${state.gearMode==="slot"?" active":""}" id="aimSgModeSlot">📦 Slot</button>
+        <button class="sg-mode-btn${state.gearMode==="category"?" active":""}" id="aimSgModeCat">🏷 Category</button>
       </div>
       <span class="sg-cache-hint">
         ${esc(statusText)}
@@ -2444,7 +2444,7 @@
     </div>
     <div class="sg-hl-toolbar">
       <span class="sg-hl-label">Highlight:</span>
-      <button class="sg-mode-btn${state.highlightCats.size===CATEGORIES.length?" active":""}" id="sgHlAll"
+      <button class="sg-mode-btn${state.highlightCats.size===CATEGORIES.length?" active":""}" id="aimSgHlAll"
         style="${state.highlightCats.size===CATEGORIES.length?"color:#e8eefc;border-color:#3b82f6;":""}"
         title="Toggle all highlights">All</button>
       ${CATEGORIES.map(cat => {
@@ -2472,7 +2472,7 @@
           style="${(!selectedSalvageCount || state.salvageBusy) ? "opacity:.45;cursor:not-allowed;" : "color:#fca5a5;border-color:#ef4444;background:rgba(239,68,68,.08);"}"
           title="Salvage gear items selected by the Highlight buttons, plus any checked items">💾 ${state.salvageBusy ? "Salvaging…" : `Salvage Highlighted (${selectedSalvageCount})`}</button>
         <label style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#64748b;cursor:pointer;margin-left:4px;" title="Skip S-rated items when salvaging">
-          <input type="checkbox" id="sgSalvageExcludeS" ${state.salvageExcludeSTier ? "checked" : ""} style="width:11px;height:11px;accent-color:#facc15;cursor:pointer;">
+          <input type="checkbox" id="aimSgSalvageExcludeS" ${state.salvageExcludeSTier ? "checked" : ""} style="width:11px;height:11px;accent-color:#facc15;cursor:pointer;">
           Skip S
         </label>
         ${state.salvageStatus ? `<span style="font-size:10px;line-height:1.25;color:${state.salvageStatus.startsWith("Salvaged") ? "#4ade80" : state.salvageStatus.startsWith("Salvaging") ? "#93c5fd" : "#fca5a5"};">${esc(state.salvageStatus)}</span>` : ""}
@@ -2561,7 +2561,7 @@
       const sel      = state.marketCtxPlayerId === tp.playerId ? " selected" : "";
       return `<option value="${esc(tp.playerId)}"${sel}>${icon} ${esc(tp.username)}</option>`;
     }).join("");
-    return `<select id="sgMktCtx" style="font-size:10px;background:#0f172a;color:#e8eefc;border:1px solid #1e293b;border-radius:4px;padding:1px 4px;cursor:pointer;">
+    return `<select id="aimSgMktCtx" style="font-size:10px;background:#0f172a;color:#e8eefc;border:1px solid #1e293b;border-radius:4px;padding:1px 4px;cursor:pointer;">
       <option value=""${!state.marketCtxPlayerId ? " selected" : ""}>👤 Me</option>
       ${opts}
     </select>`;
@@ -2594,7 +2594,7 @@
         ${ctxSelector}
       </div>
       <div style="display:flex;gap:5px;align-items:center;">
-        ${futureItems.length ? `<button class="sg-mode-btn${state.marketHideFuture?" active":""}" id="sgMktHideFuture"
+        ${futureItems.length ? `<button class="sg-mode-btn${state.marketHideFuture?" active":""}" id="aimSgMktHideFuture"
           style="${state.marketHideFuture?"color:#6b7280;border-color:#374151;":""}"
           title="${state.marketHideFuture?"Show":"Hide"} future tier items">🔒 ${futureItems.length}</button>` : ""}
         <span class="sg-cache-hint">· <span style="color:#3b82f6;">${esc(marketCtxFilterKey()||"—")}</span></span>
@@ -4205,7 +4205,7 @@
     const allActive = ["S","A","B","C"].every(g => state.highlightGrades.has(g));
     const hlToolbar = `<div class="sg-hl-toolbar">
       <span class="sg-hl-label">Highlight:</span>
-      <button class="sg-mode-btn${allActive?" active":""}" id="sgHlGradeAll"
+      <button class="sg-mode-btn${allActive?" active":""}" id="aimSgHlGradeAll"
         style="${allActive?"color:#e8eefc;border-color:#3b82f6;":""}"
         title="Toggle all grade highlights">All</button>
       ${["S","A","B","C"].map(grade => {
@@ -4288,7 +4288,7 @@
    **************************************************************************/
 
   function render() {
-    const body = document.getElementById("sgBody");
+    const body = document.getElementById("aimSgBody");
     if (!body) return;
 
     if (state.activeTab==="filters" && state.filterEdit &&
@@ -4348,9 +4348,9 @@
           saveFilters(); render();
         });
       });
-      document.getElementById("sgFeSave")?.addEventListener("click", () => {
+      document.getElementById("aimSgFeSave")?.addEventListener("click", () => {
         const fe = state.filterEdit; if (!fe) return;
-        const newName = (document.getElementById("sgFeName")?.value||fe.key).trim();
+        const newName = (document.getElementById("aimSgFeName")?.value||fe.key).trim();
         const oldFC   = state.filters.get(fe.key);
         if (newName!==fe.key) state.filters.delete(fe.key);
         state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus, [...(fe.preferredStats ?? [])], oldFC?.mode ?? "defensive"));
@@ -4360,12 +4360,12 @@
         }
         state.filterEdit = null; saveFilters(); render();
       });
-      document.getElementById("sgFeCancel")?.addEventListener("click", () => {
+      document.getElementById("aimSgFeCancel")?.addEventListener("click", () => {
         state.filterEdit = null; render();
       });
       body.querySelectorAll("[data-estat]").forEach((btn) => {
         btn.addEventListener("click", () => {
-          const nameEl = document.getElementById("sgFeName");
+          const nameEl = document.getElementById("aimSgFeName");
           if (nameEl && state.filterEdit) state.filterEdit.name = nameEl.value;
           const stat = btn.dataset.estat; if (!state.filterEdit) return;
           const fe = state.filterEdit;
@@ -4396,7 +4396,7 @@
       body.querySelectorAll("[data-mbstat]").forEach((btn) => {
         btn.addEventListener("click", () => {
           const stat = btn.dataset.mbstat; if (!state.filterEdit) return;
-          const nameEl = document.getElementById("sgFeName");
+          const nameEl = document.getElementById("aimSgFeName");
           if (nameEl) state.filterEdit.name = nameEl.value;
           const cur  = state.filterEdit.multiBonus[stat] ?? 0;
           const next = (cur + 1) % 4;
@@ -4405,7 +4405,7 @@
           render();
         });
       });
-      document.getElementById("sgFeAdd")?.addEventListener("click", () => {
+      document.getElementById("aimSgFeAdd")?.addEventListener("click", () => {
         const name = `Filter ${state.filters.size+1}`;
         state.filters.set(name, mkFC([]));
         state.filterEdit = { key:name, name, stats:new Set(), preferredStats:new Set(), multiBonus:{} };
@@ -4422,9 +4422,9 @@
     }
 
     if (state.activeTab==="gear") {
-      body.querySelector("#sgModeSlot")?.addEventListener("click", () => { state.gearMode="slot"; render(); });
-      body.querySelector("#sgModeCat")?.addEventListener("click",  () => { state.gearMode="category"; render(); });
-      body.querySelector("#sgHlAll")?.addEventListener("click", () => {
+      body.querySelector("#aimSgModeSlot")?.addEventListener("click", () => { state.gearMode="slot"; render(); });
+      body.querySelector("#aimSgModeCat")?.addEventListener("click",  () => { state.gearMode="category"; render(); });
+      body.querySelector("#aimSgHlAll")?.addEventListener("click", () => {
         const allCats = CATEGORIES.map(c => c.key);
         if (allCats.every(k => state.highlightCats.has(k))) state.highlightCats.clear();
         else allCats.forEach(k => state.highlightCats.add(k));
@@ -4480,7 +4480,7 @@
         });
       }
 
-      body.querySelector("#sgSalvageExcludeS")?.addEventListener("change", e => {
+      body.querySelector("#aimSgSalvageExcludeS")?.addEventListener("change", e => {
         state.salvageExcludeSTier = e.target.checked;
         render();
       });
@@ -4508,11 +4508,11 @@
     }
 
     if (state.activeTab==="market") {
-      body.querySelector("#sgMktHideFuture")?.addEventListener("click", () => {
+      body.querySelector("#aimSgMktHideFuture")?.addEventListener("click", () => {
         state.marketHideFuture = !state.marketHideFuture;
         render();
       });
-      body.querySelector("#sgMktCtx")?.addEventListener("change", e => {
+      body.querySelector("#aimSgMktCtx")?.addEventListener("change", e => {
         state.marketCtxPlayerId = e.target.value || null;
         rebuildMarketItems();
         render();
@@ -4636,7 +4636,7 @@
     }
 
     if (state.activeTab==="rating") {
-      body.querySelector("#sgHlGradeAll")?.addEventListener("click", () => {
+      body.querySelector("#aimSgHlGradeAll")?.addEventListener("click", () => {
         const all = ["S","A","B","C"];
         if (all.every(g => state.highlightGrades.has(g))) state.highlightGrades.clear();
         else all.forEach(g => state.highlightGrades.add(g));
@@ -4712,7 +4712,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.45.4',
+    version:     '8.45.5',
     category:    'fighter',
   });
 })();
