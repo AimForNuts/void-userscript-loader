@@ -1891,7 +1891,7 @@
       box-shadow:0 18px 60px rgba(0,0,0,.65);
       font:12px/1.4 Inter,ui-sans-serif,system-ui,sans-serif;
       overflow:hidden; display:flex; flex-direction:column;
-      max-height:calc(100vh - 32px); transition:width .2s ease;
+      height:min(560px, calc(100vh - 32px)); transition:width .2s ease;
     }
     #aimSgPanel.sg-wide { width:480px; }
     #aimSgPanel.sg-hidden { display:none; }
@@ -2102,11 +2102,11 @@
       background:#0a1220; border:1px solid rgba(59,130,246,.3);
       border-radius:8px; padding:8px; margin-top:6px;
     }
-    .sg-filter-edit-row { display:flex; gap:5px; align-items:center; margin-bottom:6px; }
+    .sg-filter-edit-row { display:flex; gap:5px; align-items:center; margin-top:5px; }
     .sg-filter-input {
-      flex:1; background:#141d30; color:#e8eefc;
+      width:100%; box-sizing:border-box; background:#141d30; color:#e8eefc;
       border:1px solid rgba(255,255,255,.15); border-radius:5px;
-      padding:4px 7px; font:inherit; font-size:11px;
+      padding:5px 8px; font:inherit; font-size:13px; font-weight:600;
     }
     .sg-pref-grid { display:flex; flex-wrap:wrap; gap:4px; margin:5px 0; }
     .sg-pref-chip {
@@ -2658,8 +2658,8 @@
       </div>`;
       if (isEditing) {
         html += `<div class="sg-filter-edit">
+          <input class="sg-filter-input" id="aimSgFeName" value="${esc(fe.name)}" placeholder="Filter name">
           <div class="sg-filter-edit-row">
-            <input class="sg-filter-input" id="aimSgFeName" value="${esc(fe.name)}" placeholder="Filter name">
             <button class="sg-btn" id="aimSgFeSave">Save</button>
             <button class="sg-btn" id="aimSgFeClean" title="Clear all stat selections for this filter">Clean</button>
             <button class="sg-btn" id="aimSgFeCancel">✗</button>
@@ -4680,7 +4680,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.51.0',
+    version:     '8.52.0',
     category:    'fighter',
   });
 })();
