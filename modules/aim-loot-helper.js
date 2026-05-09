@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.61.0';
+  const MODULE_VERSION = '8.62.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -574,12 +574,24 @@
   }
 
   function getApiAuthHeaders() {
+    // Try previously sniffed headers first
     try {
       const saved = JSON.parse(localStorage.getItem(API_AUTH_HEADERS_KEY) || "null");
       if (saved?.headers && typeof saved.headers === "object") {
         const out = {};
         for (const [key, value] of Object.entries(saved.headers)) out[key] = value;
-        return out;
+        if (Object.keys(out).length) return out;
+      }
+    } catch {}
+    // Fallback: read Supabase auth token directly from localStorage
+    // (fetch hook on sandbox window never sees game's own requests)
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+        const val = JSON.parse(localStorage.getItem(key) || "null");
+        const token = val?.access_token;
+        if (token) return { authorization: `Bearer ${token}` };
       }
     } catch {}
     return {};
