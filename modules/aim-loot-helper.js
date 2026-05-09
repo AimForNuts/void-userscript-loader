@@ -191,10 +191,10 @@
   const CAN_WEAR_HEAVY_ARMOR = new Set(["spear"]);
 
   const CATEGORIES = [
-    { key:"top",  label:"✅ Top Pick", cls:"rec-top"  },
-    { key:"up",   label:"👍 Interesting",  cls:"rec-up"   },
-    { key:"neu",  label:"↔ Neutral",   cls:"rec-neu"  },
-    { key:"sal",  label:"💾 Salvage",  cls:"rec-sal"  },
+    { key:"bis",  label:"BiS"     },
+    { key:"top",  label:"Top"     },
+    { key:"good", label:"Good"    },
+    { key:"sal",  label:"Salvage" },
   ];
 
   const STAT_DEFS = [
@@ -295,8 +295,9 @@
     avoidMultiplierCompleteItem:        0,
     avoidMultiplierPreferredMissing:  0.5,
     avoidMultiplierMustHaveMissing:     1,
-    upgradeThreshold:                  10,
-    downgradeThreshold:               -10,
+    bisThreshold:                       50,
+    topThreshold:                       25,
+    goodThreshold:                       0,
   };
 
   /**************************************************************************
@@ -986,22 +987,23 @@
     const priorityUps   = diffs.filter(d => d.isUp && activeFC.stats.has(d.stat)).length;
     const hasPriorityMR = multiRollCount > 0 && [...itemStatKeys].some(s => activeFC.stats.has(s));
     const chatEligibleStats = eligibleStatsForItem({ slotType: slot, weaponSubType: typePart?.toLowerCase(), armorWeight });
-    const score = calcFilterScore(ttStats, eqBaseStats, activeFC, multiRollCount, itemStatKeys, chatEligibleStats).finalScore;
+    const chatBd = calcFilterScore(ttStats, eqBaseStats, activeFC, multiRollCount, itemStatKeys, chatEligibleStats);
+    const score = chatBd.finalScore;
     let { rec, cat: chatCat } = applyQualityCap(
-      recommendation(score, priorityUps, hasPriorityMR, activeFC),
-      categoryOf(score, priorityUps, hasPriorityMR, activeFC),
+      recommendation(score, chatBd.mustHaveMissingCount),
+      categoryOf(score, chatBd.mustHaveMissingCount),
       ttQualities, multiRollCount, slot
     );
     const hasChatPrefMR = multiRollCount > 0 && [...itemStatKeys].some(s => activeFC.preferredStats.has(s));
-    if (hasChatPrefMR && (chatCat === "neu" || chatCat === "sal")) {
-      rec = { label:"👍 Interesting", cls:"rec-up" }; chatCat = "up";
+    if (hasChatPrefMR && chatCat === "sal") {
+      rec = { label:"👍 Good", cls:"rec-good" }; chatCat = "good";
     }
-    // Flat-upgrade exception: if every filter stat present on this item beats equipped base → at least Upgrade
+    // Flat-upgrade exception: if every filter stat present on this item beats equipped base → at least Good
     {
       const filterStatsOnItem = [...activeFC.stats, ...activeFC.preferredStats].filter(s => itemStatKeys.has(s));
       if (filterStatsOnItem.length > 0 && filterStatsOnItem.every(s => diffs.some(d => d.stat === s && d.isUp))) {
-        if (chatCat === "neu" || chatCat === "sal") {
-          rec = { label:"👍 Interesting", cls:"rec-up" }; chatCat = "up";
+        if (chatCat === "sal") {
+          rec = { label:"👍 Good", cls:"rec-good" }; chatCat = "good";
         }
       }
     }
@@ -1018,8 +1020,8 @@
       } else if (armorWeight === "heavy" && !CAN_WEAR_HEAVY_ARMOR.has(chatEqWeapon.type)) {
         chatRestricted = true;
       }
-      if (chatRestricted && (chatCat === "top" || chatCat === "up")) {
-        rec = { label:"↔ Neutral", cls:"rec-neu" };
+      if (chatRestricted && (chatCat === "bis" || chatCat === "top")) {
+        rec = { label:"👍 Good", cls:"rec-good" };
       }
     }
 
@@ -1139,7 +1141,7 @@
     _tooltipObs.observe(document.body, { childList: true, subtree: true });
   }
 
-  const CAT_HL_CLASS   = { top:"sg-hl-top", up:"sg-hl-up", neu:"sg-hl-neu", sal:"sg-hl-sal" };
+  const CAT_HL_CLASS   = { bis:"sg-hl-bis", top:"sg-hl-top", good:"sg-hl-good", sal:"sg-hl-sal" };
   const GRADE_HL_CLASS = { S:"sg-hl-grade-s", A:"sg-hl-grade-a", B:"sg-hl-grade-b", C:"sg-hl-grade-c" };
 
   function applyBagHighlights() {
@@ -1402,19 +1404,19 @@
     };
   }
 
-  function recommendation(score, _priorityUps, _hasPriorityMultiRoll, _fc) {
+  function recommendation(score, mustHaveMissingCount = 0) {
     const cfg = SCORE_CONFIG;
-    if (score >= cfg.upgradeThreshold * 5) return { label:"✅ Top Pick",   cls:"rec-top" };
-    if (score >= cfg.upgradeThreshold)     return { label:"👍 Interesting", cls:"rec-up"  };
-    if (score >= cfg.downgradeThreshold)   return { label:"↔ Neutral",     cls:"rec-neu" };
-    return                                        { label:"💾 Salvage",    cls:"rec-sal" };
+    if (mustHaveMissingCount === 0 && score >= cfg.bisThreshold) return { label:"⭐ BiS",     cls:"rec-bis"  };
+    if (score >= cfg.topThreshold)                               return { label:"✅ Top",     cls:"rec-top"  };
+    if (score >= cfg.goodThreshold)                              return { label:"👍 Good",    cls:"rec-good" };
+    return                                                              { label:"💾 Salvage", cls:"rec-sal"  };
   }
 
-  function categoryOf(score, _priorityUps, _hasPriorityMultiRoll, _fc) {
+  function categoryOf(score, mustHaveMissingCount = 0) {
     const cfg = SCORE_CONFIG;
-    if (score >= cfg.upgradeThreshold * 5) return "top";
-    if (score >= cfg.upgradeThreshold)     return "up";
-    if (score >= cfg.downgradeThreshold)   return "neu";
+    if (mustHaveMissingCount === 0 && score >= cfg.bisThreshold) return "bis";
+    if (score >= cfg.topThreshold)                               return "top";
+    if (score >= cfg.goodThreshold)                              return "good";
     return "sal";
   }
 
@@ -1430,21 +1432,21 @@
     if (slotType === "Weapon" && !hasAllStats) {
       const atkQ = rollQualities["atk"] ?? null;
       if (atkQ !== null && atkQ < 0.75 && multiRollCount === 0) {
-        if (cat === "top" || cat === "up" || cat === "neu") {
+        if (cat === "bis" || cat === "top" || cat === "good") {
           return { rec:{ label:"💾 Salvage", cls:"rec-sal" }, cat:"sal" };
         }
       }
     }
 
-    // Median quality < 75%: cap at Neutral
+    // Median quality < 75%: cap at Good
     if (median < 0.75) {
       if (hasAllStats) {
-        // allStats exception: force exactly Neutral — allStats has inherent value so prevent Salvage/Skip too
-        return { rec:{ label:"↔ Neutral", cls:"rec-neu" }, cat:"neu" };
+        // allStats exception: force exactly Good — allStats has inherent value so prevent Salvage too
+        return { rec:{ label:"👍 Good", cls:"rec-good" }, cat:"good" };
       }
-      // Normal case: block Upgrade and Top Pick only
-      if (cat === "top" || cat === "up") {
-        return { rec:{ label:"↔ Neutral", cls:"rec-neu" }, cat:"neu" };
+      // Normal case: block BiS and Top only
+      if (cat === "bis" || cat === "top") {
+        return { rec:{ label:"👍 Good", cls:"rec-good" }, cat:"good" };
       }
     }
 
@@ -1683,49 +1685,50 @@
     let bestFilter = null, bestFilterScore = -Infinity;
     for (const [key, score] of Object.entries(filterScores)) {
       const fc = state.filters.get(key);
-      if (key !== activeKey && fc?.enabled && score > bestFilterScore && score >= SCORE_CONFIG.upgradeThreshold) {
+      if (key !== activeKey && fc?.enabled && score > bestFilterScore && score >= SCORE_CONFIG.goodThreshold) {
         bestFilterScore = score; bestFilter = key;
       }
     }
 
+    const activeBd = filterBreakdowns[activeKey];
     let { rec, cat } = applyQualityCap(
-      recommendation(prefScore, 0, activePriMR, activeFC),
-      categoryOf(prefScore, 0, activePriMR, activeFC),
+      recommendation(prefScore, activeBd?.mustHaveMissingCount ?? 0),
+      categoryOf(prefScore, activeBd?.mustHaveMissingCount ?? 0),
       rollQualities, multiRollCount, slotType
     );
 
     // Multi-roll floors (applied after quality cap):
-    // • Double roll (any quality)       → at least Interesting (up)
-    // • Triple+ roll, quality ≥ 75%    → at least Interesting (up)
-    // • Triple+ roll, quality < 75%    → at least Neutral + "Interesting" flag
+    // • Double roll (any quality)       → at least Good
+    // • Triple+ roll, quality ≥ 75%    → at least Good
+    // • Triple+ roll, quality < 75%    → at least Good + "Interesting" flag
     const mrMedianQuality = multiRollCount > 0 ? calcMedian(Object.values(rollQualities)) : 1;
     let mrInteresting = false;
     if (multiRollCount >= 1) {
       if (multiRollCount === 1 || mrMedianQuality >= 0.75) {
-        if (cat === "neu" || cat === "sal") {
-          rec = { label:"🎲 Interesting", cls:"rec-up" }; cat = "up";
+        if (cat === "sal") {
+          rec = { label:"🎲 Good", cls:"rec-good" }; cat = "good";
         }
       } else {
         if (cat === "sal") {
-          rec = { label:"↔ Neutral", cls:"rec-neu" }; cat = "neu";
+          rec = { label:"👍 Good", cls:"rec-good" }; cat = "good";
         }
         mrInteresting = true;
       }
     }
 
-    // Preferred stat + any multi-roll → always at least Upgrade (overrides "interesting")
-    if (activePrefMR && (cat === "neu" || cat === "sal")) {
-      rec = { label:"👍 Interesting", cls:"rec-up" }; cat = "up";
+    // Preferred stat + any multi-roll → always at least Good (overrides "interesting")
+    if (activePrefMR && cat === "sal") {
+      rec = { label:"👍 Good", cls:"rec-good" }; cat = "good";
       mrInteresting = false;
     }
 
-    // Flat-upgrade exception: if every filter stat present on this item beats equipped base → at least Upgrade
+    // Flat-upgrade exception: if every filter stat present on this item beats equipped base → at least Good
     // Bypasses quality cap penalties — a bad roll on a strictly better item is still an upgrade
     if (equippedItem) {
       const filterStatsOnItem = [...activeFC.stats, ...activeFC.preferredStats].filter(s => itemStatKeys.has(s));
       if (filterStatsOnItem.length > 0 && filterStatsOnItem.every(s => diffs.some(d => d.stat === s && d.isUp))) {
-        if (cat === "neu" || cat === "sal") {
-          rec = { label:"👍 Interesting", cls:"rec-up" }; cat = "up";
+        if (cat === "sal") {
+          rec = { label:"👍 Good", cls:"rec-good" }; cat = "good";
           mrInteresting = false;
         }
       }
@@ -1744,8 +1747,8 @@
         classRestricted = true;
       }
     }
-    if (classRestricted && (cat === "top" || cat === "up")) {
-      rec = { label:"↔ Neutral", cls:"rec-neu" }; cat = "neu";
+    if (classRestricted && (cat === "bis" || cat === "top")) {
+      rec = { label:"👍 Good", cls:"rec-good" }; cat = "good";
     }
 
     return {
@@ -1821,7 +1824,7 @@
       if (item?.isFutureTier) {
         wantCls  = `sg-mp-badge sg-badge sg-badge-future`;
         wantText = `🔒 T${item.itemTier}`;
-      } else if (item?.cat === "top" || item?.cat === "up") {
+      } else if (item?.cat === "bis" || item?.cat === "top" || item?.cat === "good") {
         wantCls  = `sg-mp-badge sg-badge ${item.rec.cls}`;
         wantText = item.rec.label;
       }
@@ -1957,10 +1960,10 @@
       font-size:10px; padding:1px 5px; border-radius:4px;
       border:1px solid; white-space:nowrap;
     }
-    .rec-top  { color:#86efac; border-color:#166534; background:rgba(134,239,172,.1); }
-    .rec-up   { color:#93c5fd; border-color:#1d4ed8; background:rgba(147,197,253,.1); }
-    .rec-neu  { color:#94a3b8; border-color:#334155; background:rgba(148,163,184,.06); }
-    .rec-sal  { color:#fca5a5; border-color:#7f1d1d; background:rgba(252,165,165,.1); }
+    .rec-bis  { color:#facc15; border-color:rgba(250,204,21,.5);  background:rgba(250,204,21,.12); }
+    .rec-top  { color:#4ade80; border-color:rgba(74,222,128,.5);  background:rgba(74,222,128,.10); }
+    .rec-good { color:#60a5fa; border-color:rgba(96,165,250,.5);  background:rgba(96,165,250,.10); }
+    .rec-sal  { color:#94a3b8; border-color:rgba(148,163,184,.2); background:transparent; }
     .sg-badge-shard  { color:#a78bfa; border-color:#4c1d95; background:rgba(167,139,250,.1); }
     .sg-badge-legacy { color:#fbbf24; border-color:#78350f; background:rgba(251,191,36,.1); }
     .sg-badge-multi      { color:#c084fc; border-color:#581c87; background:rgba(192,132,252,.1); }
@@ -2259,10 +2262,10 @@
         padding:2px 7px !important; border-radius:4px !important;
         border:1px solid !important; z-index:10 !important; pointer-events:none !important;
       }
-      .sg-hl-top  { outline:3px solid #22c55e !important; box-shadow:0 0 16px 4px rgba(34,197,94,.75) !important; border-radius:4px; }
-      .sg-hl-up   { outline:3px solid #3b82f6 !important; box-shadow:0 0 16px 4px rgba(59,130,246,.75) !important; border-radius:4px; }
-      .sg-hl-neu  { outline:3px solid #94a3b8 !important; box-shadow:0 0 16px 4px rgba(148,163,184,.65) !important; border-radius:4px; }
-      .sg-hl-sal  { outline:3px solid #ef4444 !important; box-shadow:0 0 16px 4px rgba(239,68,68,.75) !important; border-radius:4px; }
+      .sg-hl-bis  { outline:2px solid #facc15; }
+      .sg-hl-top  { outline:2px solid #4ade80; }
+      .sg-hl-good { outline:2px solid #60a5fa; }
+      .sg-hl-sal  { outline:2px solid #94a3b8; }
       .sg-hl-pin      { outline:3px solid #f59e0b !important; box-shadow:0 0 20px 6px rgba(245,158,11,.90) !important; border-radius:4px; }
       .sg-hl-grade-s  { outline:3px solid #facc15 !important; box-shadow:0 0 16px 4px rgba(250,204,21,.80) !important; border-radius:4px; }
       .sg-hl-grade-a  { outline:3px solid #4ade80 !important; box-shadow:0 0 16px 4px rgba(74,222,128,.75) !important; border-radius:4px; }
@@ -2614,13 +2617,13 @@
           </table>
           <b>Result labels:</b>
           <table>
-            <tr><td>✅ Top Pick</td><td>score ≥ 50</td></tr>
-            <tr><td>👍 Interesting</td><td>score ≥ 10</td></tr>
-            <tr><td>↔ Neutral</td><td>score ≥ −10</td></tr>
-            <tr><td>💾 Salvage</td><td>score &lt; −10</td></tr>
+            <tr><td>⭐ BiS</td><td>all must-haves present · score ≥ 50</td></tr>
+            <tr><td>✅ Top</td><td>score ≥ 25</td></tr>
+            <tr><td>👍 Good</td><td>score ≥ 0</td></tr>
+            <tr><td>💾 Salvage</td><td>score &lt; 0</td></tr>
           </table>
           <b>Multi-roll bonus</b> adds a flat score when a multi-rolled item has a specific stat — set per stat in the ✏ edit panel.<br><br>
-          <b>Roll quality cap</b>: items with median roll quality &lt; 75% are capped at Neutral; weapons with ATK quality &lt; 75% are capped at Salvage.
+          <b>Roll quality cap</b>: items with median roll quality &lt; 75% are capped at Good; weapons with ATK quality &lt; 75% are capped at Salvage.
         </div>
       </details>
       <div class="sg-filter-list">`;
@@ -2700,12 +2703,12 @@
         : "open inventory";
 
     const CAT_HL_STYLE = {
-      top:  "color:#86efac;border-color:#22c55e;",
-      up:   "color:#93c5fd;border-color:#3b82f6;",
-      neu:  "color:#94a3b8;border-color:#64748b;",
-      sal:  "color:#fca5a5;border-color:#ef4444;",
+      bis:  "color:#facc15;border-color:#facc15;",
+      top:  "color:#4ade80;border-color:#4ade80;",
+      good: "color:#60a5fa;border-color:#60a5fa;",
+      sal:  "color:#94a3b8;border-color:#374151;",
     };
-    const CAT_HL_EMOJI = { top:"✅", up:"👍", neu:"↔", sal:"💾" };
+    const CAT_HL_EMOJI = { bis:"⭐", top:"✅", good:"👍", sal:"💾" };
 
     let html = `<div class="sg-gear-toolbar">
       <div style="display:flex;gap:5px;">
@@ -2804,11 +2807,11 @@
     let html = "";
     for (const cat of CATEGORIES) {
       const items   = bycat[cat.key];
-      const defOpen = state.catOpen[cat.key] ?? (cat.key==="top"||cat.key==="up");
+      const defOpen = state.catOpen[cat.key] ?? (cat.key==="bis"||cat.key==="top"||cat.key==="good");
       html += `<div class="sg-cat-section" data-cat="${esc(cat.key)}">
         <div class="sg-cat-header">
           <span class="sg-cat-title">
-            <span class="sg-badge ${cat.cls}">${esc(cat.label)}</span>
+            <span class="sg-badge rec-${cat.key}">${esc(cat.label)}</span>
             <span class="sg-cat-count">${items.length}</span>
           </span>
           <span class="sg-cat-toggle">${defOpen?"▾":"▸"}</span>
@@ -2858,9 +2861,9 @@
     const mwt         = state.marketCtxMwt;
     const nowItems    = state.marketItems.filter(i => !i.isFutureTier);
     const futureItems = state.marketItems.filter(i =>  i.isFutureTier);
+    const bisItems    = nowItems.filter(i => i.cat === "bis");
     const topItems    = nowItems.filter(i => i.cat === "top");
-    const upItems     = nowItems.filter(i => i.cat === "up");
-    const neuItems    = nowItems.filter(i => i.cat === "neu");
+    const goodItems   = nowItems.filter(i => i.cat === "good");
 
     const ctxSelector = _marketCtxSelectorHtml();
     let html = `<div class="sg-gear-toolbar">
@@ -2877,14 +2880,14 @@
       </div>
     </div>`;
 
-    if (!topItems.length && !upItems.length) {
-      html += `<div class="sg-hint">No Top Picks or Interesting items<br>in current tier range.</div>`;
+    if (!bisItems.length && !topItems.length && !goodItems.length) {
+      html += `<div class="sg-hint">No BiS, Top, or Good items<br>in current tier range.</div>`;
     }
 
     const groups = [
-      { cls:"rec-top", label:"✅ Top Pick", items: topItems },
-      { cls:"rec-up",  label:"👍 Interesting",  items: upItems  },
-      { cls:"rec-neu", label:"↔ Neutral",   items: neuItems },
+      { cls:"rec-bis",  label:"⭐ BiS",  items: bisItems  },
+      { cls:"rec-top",  label:"✅ Top",  items: topItems  },
+      { cls:"rec-good", label:"👍 Good", items: goodItems },
     ].filter(g => g.items.length);
 
     for (const g of groups) {
@@ -2923,7 +2926,7 @@
     const mrRaw    = {1:"Double",2:"Triple",3:"Quad"}[item.multiRollCount];
     const mrQPct   = item.multiRollCount ? Math.round((item.mrMedianQuality??1)*100) : 0;
     const mrQCol   = mrQPct>=80?"#4ade80":mrQPct>=60?"#fde68a":"#f87171";
-    const mrLabel  = mrRaw ? `${mrRaw} Roll <span style="color:${mrQCol}">${mrQPct}%</span>${item.mrInteresting?" 🎲 Interesting":""}` : null;
+    const mrLabel  = mrRaw ? `${mrRaw} Roll <span style="color:${mrQCol}">${mrQPct}%</span>${item.mrInteresting?" 🎲 Multi-Roll":""}` : null;
 
     const chips = item.diffs.slice(0, 4).map(d => {
       const isPref  = d.stat && activeFC.stats.has(d.stat);
@@ -2967,7 +2970,7 @@
         if (k === state.activeFilterKey) return false;
         const fc = state.filters.get(k);
         if (!fc?.enabled) return false;
-        return s >= SCORE_CONFIG.upgradeThreshold;
+        return s >= SCORE_CONFIG.goodThreshold;
       })
       .sort(([,a],[,b]) => b-a)
       .map(([k]) => `<span class="sg-filter-tag">${esc(k)}</span>`);
@@ -2979,7 +2982,7 @@
     const label  = {1:"Double",2:"Triple",3:"Quad"}[item.multiRollCount] ?? `×${item.multiRollCount+1}`;
     const qPct   = Math.round((item.mrMedianQuality ?? 1) * 100);
     const qColor = qPct >= 80 ? "#4ade80" : qPct >= 60 ? "#fde68a" : "#f87171";
-    const note   = item.mrInteresting ? ` · <span style="color:#a78bfa;">🎲 Interesting</span>` : "";
+    const note   = item.mrInteresting ? ` · <span style="color:#a78bfa;">🎲 Multi-Roll</span>` : "";
     return `<span class="sg-badge sg-badge-multi">${label} Roll <span style="color:${qColor};font-weight:700;">${qPct}%</span>${note}</span>`;
   }
 
@@ -3265,7 +3268,7 @@
           const lbl   = {1:"Double",2:"Triple",3:"Quad"}[item.multiRollCount] ?? "×"+(item.multiRollCount+1);
           const qPct  = Math.round((item.mrMedianQuality??1)*100);
           const qCol  = qPct>=80?"#4ade80":qPct>=60?"#fde68a":"#f87171";
-          const iNote = item.mrInteresting ? " 🎲 Interesting" : "";
+          const iNote = item.mrInteresting ? " 🎲 Multi-Roll" : "";
           return ` · ${lbl} Roll <span style="color:${qCol}">${qPct}%</span>${iNote}`;
         })():""}${item.classRestricted?" · 🔒 Wrong type":""}</div>
         <div class="sg-diffs">${chips}</div>
@@ -3492,7 +3495,7 @@
       const profile = { playerId: tp.playerId, username: tp.username, equippedMap: eqMap, filterKey: tp.filterKey };
       for (const raw of state.bagItemsRaw) {
         const ev = _buildBagItem(raw, eqMap, profFilter);
-        if (ev.cat !== "top") continue;
+        if (ev.cat !== "bis" && ev.cat !== "top") continue;
         if (!ev.id) continue;
         candidates.push({ profile, item: ev, raw, score: Number(ev.prefScore || 0) });
       }
@@ -3525,7 +3528,7 @@
       .slice(0, 5)
       .map(d => d.text)
       .join(", ");
-    const why = diffs ? `Upgrade stats: ${diffs}` : "Loot Helper marked this as a Top Pick.";
+    const why = diffs ? `Upgrade stats: ${diffs}` : "Loot Helper marked this as BiS or Top.";
     return `Sent by Loot Helper. ${why}`;
   }
 
@@ -3534,7 +3537,7 @@
     if (list.length <= 1) return buildMailMessage(profile, list[0]);
     const names = list.slice(0, 12).map(item => compactItemLabel(item)).join(", ");
     const more  = list.length > 12 ? `, +${list.length - 12} more` : "";
-    return `Sent by Loot Helper. Top Pick upgrades for ${profile?.username || "teammate"}: ${names}${more}`.slice(0, 500);
+    return `Sent by Loot Helper. BiS/Top upgrades for ${profile?.username || "teammate"}: ${names}${more}`.slice(0, 500);
   }
 
   function getStoredMailTemplate() {
@@ -3970,14 +3973,14 @@
 
     const plan = buildTeamSendPlan();
     if (!plan.length) {
-      state.teamSendStatus = "No Top Pick items to send.";
+      state.teamSendStatus = "No BiS or Top items to send.";
       render();
       return;
     }
 
     const preview = plan.slice(0, 20).map(({ profile, item }) => `${profile.username}: ${compactItemLabel(item)}`).join("\n");
     const more    = plan.length > 20 ? `\n…plus ${plan.length - 20} more` : "";
-    const ok      = window.confirm(`Send ${plan.length} Top Pick item(s) through mail?\n\n${preview}${more}`);
+    const ok      = window.confirm(`Send ${plan.length} BiS/Top item(s) through mail?\n\n${preview}${more}`);
     if (!ok) return;
 
     state.teamSendBusy   = true;
@@ -4084,13 +4087,13 @@
 
     let html = storageWarningBanner() + `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;flex-wrap:wrap;">
       <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
-        <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team Top Picks</span>
+        <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team BiS &amp; Top</span>
         <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · toggle active to include</span>
         ${state.teamSendStatus ? `<span style="color:${sendStatusColor};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
       </div>
       <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
         <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send top picks via mail to active teammates">
-          📬 ${state.teamSendBusy ? "Sending…" : "Send Top Picks"}
+          📬 ${state.teamSendBusy ? "Sending…" : "Send BiS/Top"}
         </button>
         <button class="sg-btn" data-sg-team-manage style="white-space:nowrap;${state.teamManage ? "border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.12);color:#93c5fd;" : ""}" title="${state.teamManage ? "Close member management" : "Add or remove team members"}">
           ${state.teamManage ? "✓ Done" : `⚙ Members${nonMembers.length ? ` (+${nonMembers.length})` : ""}`}
@@ -4143,12 +4146,12 @@
         const topItems = [];
         for (const raw of state.bagItemsRaw) {
           const ev = _buildBagItem(raw, eqMap, profFilter);
-          if (ev.cat === "top") topItems.push(ev);
+          if (ev.cat === "bis" || ev.cat === "top") topItems.push(ev);
         }
         topItems.sort((a, b) => b.prefScore - a.prefScore);
         topItemsHtml = topItems.length
           ? topItems.map(item => renderItemCard(item, deriveCharStatsFromProfile({ equippedMap: eqMap, levelText: snap.levelText }), { teamSendProfileId: tp.playerId })).join("")
-          : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is a Top Pick for ${esc(tp.username)} right now.</div>`;
+          : `<div style="color:#374151;font-size:10px;padding:8px 12px;">Nothing in your bag is BiS or Top for ${esc(tp.username)} right now.</div>`;
       } else if (isActive) {
         topItemsHtml = `<div class="sg-hint">Open Inventory to load bag items.</div>`;
       } else {
@@ -4647,7 +4650,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.49.0',
+    version:     '8.50.0',
     category:    'fighter',
   });
 })();
