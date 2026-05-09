@@ -1,6 +1,8 @@
 ﻿(function () {
   'use strict';
 
+  const MODULE_VERSION = '8.53.0';
+
   function createAimLootHelperModule(definition) {
 
   let _tickInterval = null;
@@ -15,8 +17,6 @@
   /**************************************************************************
    * CONSTANTS
    **************************************************************************/
-
-  const MODULE_VERSION = '8.53.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
