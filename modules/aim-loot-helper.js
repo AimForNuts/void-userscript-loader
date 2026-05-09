@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.55.0';
+  const MODULE_VERSION = '8.56.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -479,6 +479,7 @@
     tp.snapshots.push({ ts: Date.now(), levelText, equippedMap, charStats });
     if (tp.snapshots.length > MAX_SNAPSHOTS) tp.snapshots.shift();
     saveTrackedProfiles();
+    if (state.activeTab === "team") render();
   }
 
   // Pending inspect data keyed by playerId (captured from fetch intercept)
@@ -511,10 +512,17 @@
       const m = url.match(/\/api\/player\/([^/?]+)\/inspect/);
       if (m) {
         res.clone().json().then(data => {
-          if (Array.isArray(data.equipped)) {
-            pendingInspect[m[1]] = data;
+          const equipped = Array.isArray(data.equipped) ? data.equipped
+                         : Array.isArray(data.equippedItems) ? data.equippedItems
+                         : Array.isArray(data.items) ? data.items : null;
+          if (equipped) {
+            const payload = { ...data, equipped };
+            pendingInspect[m[1]] = payload;
             const info = pendingModalInfo[m[1]];
-            if (info) recordSnapshot(m[1], info.username, info.levelText, data);
+            if (info) {
+              recordSnapshot(m[1], info.username, info.levelText, payload);
+              info.refreshBadge?.();
+            }
           }
         }).catch(() => {});
       }
@@ -4243,11 +4251,6 @@
       const username  = usernameEl.textContent.trim() || "Unknown";
       const levelText = modal.querySelector(".inspect-level")?.textContent?.trim() ?? "";
 
-      pendingModalInfo[playerId] = { username, levelText };
-
-      const data = pendingInspect[playerId];
-      if (data) recordSnapshot(playerId, username, levelText, data);
-
       const badge = document.createElement("div");
       badge.className = "sg-inspect-badge";
       modal.style.position = "relative";
@@ -4259,25 +4262,41 @@
       actionBtn.className = "sg-inspect-badge-btn";
 
       function refreshBadge() {
-        const inTeam = trackedProfiles[playerId]?.teamMember !== false;
-        labelEl.textContent = inTeam ? "⚡ In Team" : "📋 Tracked";
+        const tp = trackedProfiles[playerId];
+        const inTeam = tp ? tp.teamMember !== false : false;
+        const saved  = !!tp;
+        labelEl.textContent = saved ? (inTeam ? "⚡ In Team" : "📋 Tracked") : "⏳ Saving…";
         actionBtn.textContent = inTeam ? "Remove" : "+ Add";
         actionBtn.className = "sg-inspect-badge-btn " + (inTeam ? "remove" : "add");
+        actionBtn.style.display = saved ? "" : "none";
         badge.style.borderColor = inTeam ? "rgba(74,222,128,.3)" : "rgba(100,116,139,.3)";
       }
 
       actionBtn.addEventListener("click", e => {
         e.stopPropagation();
-        const tp = trackedProfiles[playerId];
-        if (!tp) return;
+        let tp = trackedProfiles[playerId];
+        if (!tp) {
+          tp = { playerId, username, active: true, teamMember: false, filterKey: "", snapshots: [] };
+          trackedProfiles[playerId] = tp;
+        }
         tp.teamMember = !tp.teamMember;
         saveTrackedProfiles();
+        if (state.activeTab === "team") render();
         refreshBadge();
       });
 
       badge.appendChild(labelEl);
       badge.appendChild(actionBtn);
-      refreshBadge();
+
+      pendingModalInfo[playerId] = { username, levelText, refreshBadge };
+      const data = pendingInspect[playerId];
+      if (data) {
+        recordSnapshot(playerId, username, levelText, data);
+        refreshBadge();
+      } else {
+        refreshBadge();
+      }
+
       modal.appendChild(badge);
     }
 
@@ -4717,7 +4736,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.55.0',
+    version:     '8.56.0',
     category:    'fighter',
   });
 })();
