@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.54.0';
+  const MODULE_VERSION = '8.55.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -472,7 +472,7 @@
     const equippedMap = buildEquippedMap(data.equipped);
     const charStats   = parseInspectCharStats(data);
     if (!trackedProfiles[playerId]) {
-      trackedProfiles[playerId] = { playerId, username, active: true, teamMember: false, filterKey: "", snapshots: [] };
+      trackedProfiles[playerId] = { playerId, username, active: true, teamMember: true, filterKey: "", snapshots: [] };
     }
     const tp = trackedProfiles[playerId];
     tp.username = username;
@@ -2135,10 +2135,19 @@
 
     .sg-inspect-badge {
       position:absolute; top:10px; right:40px;
-      background:#172554; color:#4ade80;
-      border:1px solid rgba(74,222,128,.3); border-radius:6px;
-      padding:4px 10px; font:11px Inter,sans-serif; z-index:10; pointer-events:none;
+      background:#0c1526; border-radius:6px;
+      padding:3px 8px; font:11px Inter,sans-serif; z-index:10;
+      display:flex; align-items:center; gap:6px;
+      border:1px solid rgba(74,222,128,.3);
     }
+    .sg-inspect-badge-label { color:#4ade80; }
+    .sg-inspect-badge-btn {
+      font-size:9px; padding:1px 6px; border-radius:4px; cursor:pointer;
+      background:#0a1220; border:1px solid rgba(255,255,255,.15); color:#94a3b8;
+      font-family:inherit;
+    }
+    .sg-inspect-badge-btn.remove { color:#fca5a5; border-color:rgba(239,68,68,.3); }
+    .sg-inspect-badge-btn.add    { color:#86efac; border-color:rgba(74,222,128,.3); }
     .sg-team-header {
       display:flex; align-items:center; justify-content:space-between;
       padding:8px 10px; cursor:pointer; user-select:none;
@@ -4241,8 +4250,34 @@
 
       const badge = document.createElement("div");
       badge.className = "sg-inspect-badge";
-      badge.textContent = "📋 Tracked";
       modal.style.position = "relative";
+
+      const labelEl = document.createElement("span");
+      labelEl.className = "sg-inspect-badge-label";
+
+      const actionBtn = document.createElement("button");
+      actionBtn.className = "sg-inspect-badge-btn";
+
+      function refreshBadge() {
+        const inTeam = trackedProfiles[playerId]?.teamMember !== false;
+        labelEl.textContent = inTeam ? "⚡ In Team" : "📋 Tracked";
+        actionBtn.textContent = inTeam ? "Remove" : "+ Add";
+        actionBtn.className = "sg-inspect-badge-btn " + (inTeam ? "remove" : "add");
+        badge.style.borderColor = inTeam ? "rgba(74,222,128,.3)" : "rgba(100,116,139,.3)";
+      }
+
+      actionBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        const tp = trackedProfiles[playerId];
+        if (!tp) return;
+        tp.teamMember = !tp.teamMember;
+        saveTrackedProfiles();
+        refreshBadge();
+      });
+
+      badge.appendChild(labelEl);
+      badge.appendChild(actionBtn);
+      refreshBadge();
       modal.appendChild(badge);
     }
 
@@ -4682,7 +4717,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.54.0',
+    version:     '8.55.0',
     category:    'fighter',
   });
 })();
