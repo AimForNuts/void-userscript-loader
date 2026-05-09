@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.59.0';
+  const MODULE_VERSION = '8.60.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -802,7 +802,7 @@
     marketItems: [], marketRawData: [], marketVisible: false, marketHideFuture: false,
     marketCtxPlayerId: null,
     marketCtxMwt: 1,
-    teamSendStatus: "", teamSendBusy: false,
+    teamSendStatus: "", teamSendBusy: false, teamSendIncludeTop: false,
     salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(), salvageExcludeSTier: false,
     teamManage: false,
     pinnedItemId: null,
@@ -3538,7 +3538,7 @@
       const profile = { playerId: tp.playerId, username: tp.username, equippedMap: eqMap, filterKey: tp.filterKey };
       for (const raw of state.bagItemsRaw) {
         const ev = _buildBagItem(raw, eqMap, profFilter);
-        if (ev.cat !== "bis" && ev.cat !== "top") continue;
+        if (ev.cat !== "bis" && !(state.teamSendIncludeTop && ev.cat === "top")) continue;
         if (!ev.id) continue;
         candidates.push({ profile, item: ev, raw, score: Number(ev.prefScore || 0) });
       }
@@ -3699,10 +3699,11 @@
   function clickDom(el) {
     if (!el) throw new Error("Missing clickable element");
     try { el.scrollIntoView({ block: "center", inline: "center" }); } catch {}
-    el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, view: window }));
-    el.dispatchEvent(new MouseEvent("mousedown",   { bubbles: true, cancelable: true, view: window }));
-    el.dispatchEvent(new MouseEvent("pointerup",   { bubbles: true, cancelable: true, view: window }));
-    el.dispatchEvent(new MouseEvent("mouseup",     { bubbles: true, cancelable: true, view: window }));
+    const view = document.defaultView;
+    el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, view }));
+    el.dispatchEvent(new MouseEvent("mousedown",   { bubbles: true, cancelable: true, view }));
+    el.dispatchEvent(new MouseEvent("pointerup",   { bubbles: true, cancelable: true, view }));
+    el.dispatchEvent(new MouseEvent("mouseup",     { bubbles: true, cancelable: true, view }));
     el.click();
   }
 
@@ -4023,7 +4024,8 @@
 
     const preview = plan.slice(0, 20).map(({ profile, item }) => `${profile.username}: ${compactItemLabel(item)}`).join("\n");
     const more    = plan.length > 20 ? `\n…plus ${plan.length - 20} more` : "";
-    const ok      = window.confirm(`Send ${plan.length} BiS/Top item(s) through mail?\n\n${preview}${more}`);
+    const tierLabel = state.teamSendIncludeTop ? "BiS+Top" : "BiS";
+    const ok      = window.confirm(`Send ${plan.length} ${tierLabel} item(s) through mail?\n\n${preview}${more}`);
     if (!ok) return;
 
     state.teamSendBusy   = true;
@@ -4128,15 +4130,19 @@
     const sendStatusColor = state.teamSendStatus.startsWith("Sent") ? "#4ade80"
       : (state.teamSendStatus.startsWith("Sending") || state.teamSendStatus.startsWith("Attaching")) ? "#93c5fd" : "#fca5a5";
 
+    const topToggleActive = state.teamSendIncludeTop;
     let html = storageWarningBanner() + `<div class="sg-gear-toolbar" style="gap:8px;align-items:flex-start;flex-wrap:wrap;">
       <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
-        <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team BiS &amp; Top</span>
+        <span style="color:#e8eefc;font-size:11px;font-weight:700;">Team BiS${topToggleActive ? " &amp; Top" : ""}</span>
         <span style="color:#4b5563;font-size:10px;">${sendPlan.length} item(s) ready to mail · toggle active to include</span>
         ${state.teamSendStatus ? `<span style="color:${sendStatusColor};font-size:10px;line-height:1.25;">${esc(state.teamSendStatus)}</span>` : ""}
       </div>
       <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">
-        <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send top picks via mail to active teammates">
-          📬 ${state.teamSendBusy ? "Sending…" : "Send BiS/Top"}
+        <button class="sg-btn" data-sg-team-toggle-top style="white-space:nowrap;padding:2px 7px;font-size:10px;${topToggleActive ? "border-color:rgba(74,222,128,.5);background:rgba(74,222,128,.12);color:#86efac;" : "border-color:rgba(255,255,255,.12);color:#64748b;"}" title="${topToggleActive ? "Also sending ✅ Top items — click to send BiS only" : "Currently sending ⭐ BiS only — click to also include ✅ Top"}">
+          +Top${topToggleActive ? " ✓" : ""}
+        </button>
+        <button class="sg-btn" data-sg-team-send-top ${(!sendPlan.length || state.teamSendBusy) ? "disabled" : ""} style="white-space:nowrap;${(!sendPlan.length || state.teamSendBusy) ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send ${topToggleActive ? "BiS and Top" : "BiS only"} items via mail to active teammates">
+          📬 ${state.teamSendBusy ? "Sending…" : `Send BiS${topToggleActive ? "+Top" : ""}`}
         </button>
         <button class="sg-btn" data-sg-team-manage style="white-space:nowrap;${state.teamManage ? "border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.12);color:#93c5fd;" : ""}" title="${state.teamManage ? "Close member management" : "Add or remove team members"}">
           ${state.teamManage ? "✓ Done" : `⚙ Members${nonMembers.length ? ` (+${nonMembers.length})` : ""}`}
@@ -4671,6 +4677,15 @@
           }
         });
       });
+
+      const topToggleBtn = body.querySelector("[data-sg-team-toggle-top]");
+      if (topToggleBtn) {
+        topToggleBtn.addEventListener("click", e => {
+          e.preventDefault();
+          state.teamSendIncludeTop = !state.teamSendIncludeTop;
+          render();
+        });
+      }
 
       const sendTopBtn = body.querySelector("[data-sg-team-send-top]");
       if (sendTopBtn) {
