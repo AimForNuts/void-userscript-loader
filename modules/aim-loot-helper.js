@@ -16,6 +16,8 @@
    * CONSTANTS
    **************************************************************************/
 
+  const MODULE_VERSION = '8.53.0';
+
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
     EPIC:   "#6B3A8A", RARE:      "#2F6B5F", COMMON: "#7A6E62",
@@ -2300,7 +2302,7 @@
         render: _panelShellHtml,
         width:  310,
         height: 580,
-        footer: "Produced & maintained by AimForNuts",
+        footer: `v${MODULE_VERSION} · Produced & maintained by AimForNuts`,
       });
       panelEl = _moduleApp.ui.getPanel("aim-loot-helper");
       if (panelEl) _attachTabListeners(panelEl);
@@ -2314,7 +2316,7 @@
           <button class="sg-btn" id="aimSgHide">Hide</button>
         </div>
         ${_panelShellHtml()}
-        <div class="sg-footer">Produced &amp; maintained by <span class="sg-footer-name">AimForNuts</span></div>
+        <div class="sg-footer">v${MODULE_VERSION} · Produced &amp; maintained by <span class="sg-footer-name">AimForNuts</span></div>
       `;
 
       const toggleEl = document.createElement("button");
@@ -4680,7 +4682,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.52.0',
+    version:     MODULE_VERSION,
     category:    'fighter',
   });
 })();
