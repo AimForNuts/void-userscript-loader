@@ -2965,7 +2965,7 @@
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const bumpTag  = "";
+
     const sortedDiffs = [...item.diffs].sort((a,b) => {
       const wa = activeFC.preferredStats.has(a.stat) ? 2 : activeFC.stats.has(a.stat) ? 1 : 0;
       const wb = activeFC.preferredStats.has(b.stat) ? 2 : activeFC.stats.has(b.stat) ? 1 : 0;
@@ -2989,7 +2989,7 @@
           const qCol  = qPct>=80?"#4ade80":qPct>=60?"#fde68a":"#f87171";
           const iNote = item.mrInteresting ? " 🎲 Interesting" : "";
           return ` · ${lbl} Roll <span style="color:${qCol}">${qPct}%</span>${iNote}`;
-        })():""}${item.classRestricted?" · 🔒 Wrong type":""}${bumpTag}</div>
+        })():""}${item.classRestricted?" · 🔒 Wrong type":""}</div>
         <div class="sg-diffs">${chips}</div>
         ${filterTagsHtml(item)}
       </div>
@@ -4631,7 +4631,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.46.0',
+    version:     '8.47.0',
     category:    'fighter',
   });
 })();
