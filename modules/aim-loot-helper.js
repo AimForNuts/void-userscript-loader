@@ -246,8 +246,8 @@
    * FILTER STORAGE
    **************************************************************************/
 
-  function mkFC(stats, enabled=true, multiBonus={}, preferredStats=[], mode="defensive", optional=[], avoid=[]) {
-    return { stats: new Set(stats), enabled, multiBonus, preferredStats: new Set(preferredStats), mode, optional: new Set(optional), avoid: new Set(avoid) };
+  function mkFC(stats, enabled=true, multiBonus={}, preferredStats=[], optional=[], avoid=[]) {
+    return { stats: new Set(stats), enabled, multiBonus, preferredStats: new Set(preferredStats), optional: new Set(optional), avoid: new Set(avoid) };
   }
 
   function loadFilters() {
@@ -260,7 +260,7 @@
             // migrate old format
             map.set(k, mkFC(v));
           } else if (v && typeof v === "object") {
-            map.set(k, mkFC(v.stats ?? [], v.enabled !== false, v.multiBonus ?? {}, v.preferredStats ?? [], v.mode ?? "defensive", v.optional ?? [], v.avoid ?? []));
+            map.set(k, mkFC(v.stats ?? [], v.enabled !== false, v.multiBonus ?? {}, v.preferredStats ?? [], v.optional ?? [], v.avoid ?? []));
           }
         }
         if (map.size > 0) return map;
@@ -269,7 +269,7 @@
     const map = new Map();
     let firstFilter = true;
     for (const f of DEFAULT_FILTERS) {
-      map.set(f.name, mkFC(f.preferred, firstFilter, {}, f.mustHave, "defensive", f.optional, f.avoid));
+      map.set(f.name, mkFC(f.preferred, firstFilter, {}, f.mustHave, f.optional, f.avoid));
       firstFilter = false;
     }
     return map;
@@ -278,7 +278,7 @@
   function saveFilters() {
     const out = {};
     for (const [k, fc] of state.filters) {
-      out[k] = { stats:[...fc.stats], enabled:fc.enabled, multiBonus:fc.multiBonus, preferredStats:[...fc.preferredStats], mode: fc.mode ?? "defensive", optional:[...(fc.optional ?? [])], avoid:[...(fc.avoid ?? [])] };
+      out[k] = { stats:[...fc.stats], enabled:fc.enabled, multiBonus:fc.multiBonus, preferredStats:[...fc.preferredStats], optional:[...(fc.optional ?? [])], avoid:[...(fc.avoid ?? [])] };
     }
     localStorage.setItem("aim_sgFilters", JSON.stringify(out));
   }
@@ -1812,9 +1812,6 @@
     .sg-filter-row.disabled { opacity:.45; }
     .sg-toggle-btn { font-size:13px; line-height:1; padding:1px 4px; }
     .sg-toggle-btn.off { color:#374151; }
-    .sg-mode-btn { font-size:11px; line-height:1; padding:1px 5px; }
-    .sg-mode-btn.aggressive { color:#f97316; }
-    .sg-mode-btn.defensive  { color:#374151; }
 
     .sg-mb-grid { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0; }
     .sg-mb-chip {
@@ -2344,7 +2341,6 @@
             <tr><td>↔ Neutral</td><td>score ≥ −1</td></tr>
             <tr><td>💾 Salvage</td><td>score &lt; −1</td></tr>
           </table>
-          <b>Mode (🗡 / 🛡)</b> adjusts the score by the item's DPS (Aggressive) or EHP (Defensive) change vs. your equipped item: &gt;5% → ±2, 2–5% → ±1.<br><br>
           <b>Multi-roll bonus</b> adds a flat score when a multi-rolled item has a specific stat — set per stat in the ✏ edit panel.<br><br>
           <b>Roll quality cap</b>: items with median roll quality &lt; 75% are capped at Neutral; weapons with ATK quality &lt; 75% are capped at Salvage.
         </div>
@@ -2365,7 +2361,6 @@
         <span class="sg-filter-name">${esc(key)}</span>
         <span class="sg-filter-statcount">${_scText}</span>
         <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter (items won't be scored by this filter)":"Enable filter"}">${fc.enabled?"●":"○"}</button>
-        <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts score: >2%→+2, >5%→+3, <-2%→-2, <-5%→-3 (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts score: >2%→+2, >5%→+3, <-2%→-2, <-5%→-3 (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
         <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: set Must have (★ ±4), Preferred (♥ ±2), Optional (◎), or Avoid (✗) per stat">✏</button>
         ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}" title="Delete this filter">✗</button>`:""}
       </div>`;
@@ -2710,55 +2705,6 @@
     return `<span class="sg-badge sg-badge-multi">${label} Roll <span style="color:${qColor};font-weight:700;">${qPct}%</span>${note}</span>`;
   }
 
-  // Returns score bump based on DPS% change: >5%→+3, >2%→+2, <-2%→-2, <-5%→-3
-  function _dpsScoreBump(item, ctx) {
-    const c      = ctx ?? selfCtx();
-    const delta  = calcItemDpsDelta(item, c);
-    const curDPS = calcDPS(c);
-    if (delta == null || !curDPS) return 0;
-    const pct = (delta / curDPS) * 100;
-    if (pct >  5) return  3;
-    if (pct >  2) return  2;
-    if (pct < -5) return -3;
-    if (pct < -2) return -2;
-    return 0;
-  }
-
-  // Returns score bump based on EHP% change: >5%→+3, >2%→+2, <-2%→-2, <-5%→-3
-  function _ehpScoreBump(item, ctx) {
-    const c       = ctx ?? selfCtx();
-    const curSurv = calcSurvivability(c.maxHpStat, c.def ?? 0);
-    if (!curSurv) return 0;
-    const delta = calcItemSurvDelta(item, c);
-    if (delta == null) return 0;
-    const pct = (delta / curSurv) * 100;
-    if (pct >  5) return  3;
-    if (pct >  2) return  2;
-    if (pct < -5) return -3;
-    if (pct < -2) return -2;
-    return 0;
-  }
-
-  // Returns { rec, cat, bump, mode } override when filter mode affects scoring, else null
-  function adjustedRec(item, fc, activeKey, ctx) {
-    const c = ctx ?? selfCtx();
-    if (!fc || fc.mode === "defensive" && !calcSurvivability(c.maxHpStat, c.def ?? 0)) return null;
-    const bump = fc.mode === "aggressive" ? _dpsScoreBump(item, c)
-               : fc.mode === "defensive"  ? _ehpScoreBump(item, c)
-               : 0;
-    if (bump === 0) return null;
-    const baseScore   = item.filterScores?.[activeKey] ?? item.prefScore ?? 0;
-    const priorityUps = item.filterPriorityUps?.[activeKey] ?? 0;
-    const hasPriMR    = item.filterHasPriorityMR?.[activeKey] ?? false;
-    const adjScore    = baseScore + bump;
-    return {
-      rec:  recommendation(adjScore, priorityUps, hasPriMR, fc),
-      cat:  categoryOf(adjScore, priorityUps, hasPriMR, fc),
-      bump,
-      mode: fc.mode,
-    };
-  }
-
   function calcItemDpsDelta(item, ctx = state) {
     if (!ctx.atkPhys || !ctx.atkSpeed || ctx.atkSpeed <= 0) return null;
     if (!item.eqBaseStats || !item.ownBaseStats) return null;
@@ -2968,19 +2914,14 @@
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey, ctx);
-    const dispRec   = adjResult?.rec ?? item.rec;
-    const bumpIcon  = adjResult?.mode === "defensive" ? "🛡" : "🗡";
-    const bumpCol   = adjResult?.mode === "defensive" ? "#60a5fa" : "#f97316";
-    const bumpLabel = adjResult?.mode === "defensive" ? "EHP" : "DPS";
-    const bumpNote  = adjResult ? `<span title="${bumpLabel}-Anpassung aktiv (${adjResult.bump>0?"+":""}${adjResult.bump} Score)" style="color:${bumpCol};font-size:9px;margin-left:2px;">${bumpIcon}</span>` : "";
+    const dispRec   = item.rec;
     const teamSendButton = opts.teamSendProfileId
       ? `<button type="button" class="sg-btn" data-sg-team-send-one="${esc(opts.teamSendProfileId)}" data-item-id="${esc(item.id)}" ${state.teamSendBusy ? "disabled" : ""} style="padding:1px 6px;font-size:9px;margin-left:4px;${state.teamSendBusy ? "opacity:.45;cursor:not-allowed;" : "border-color:rgba(74,222,128,.35);color:#86efac;"}" title="Send only this item to this teammate through Mail">📬 Send this</button>`
       : "";
     const isPinned   = state.pinnedItemId === String(item.id);
     const pinButton  = `<button type="button" class="sg-btn" data-sg-pin-item="${esc(item.id)}" style="padding:1px 6px;font-size:9px;margin-left:4px;${isPinned?"border-color:#f59e0b;color:#fcd34d;":"border-color:rgba(245,158,11,.25);color:#6b5a2a;"}" title="${isPinned?"Remove bag highlight":"Highlight this item in bag"}">📌${isPinned?" Pinned":""}</button>`;
     const badges    = [
-      `<span class="sg-badge ${dispRec.cls}">${esc(dispRec.label)}</span>${bumpNote}`,
+      `<span class="sg-badge ${dispRec.cls}">${esc(dispRec.label)}</span>`,
       `<span class="sg-badge sg-badge-shard">💎 ${item.shards}</span>`,
       item.isLegacyStar ? `<span class="sg-badge sg-badge-legacy">★ Legacy</span>` : "",
       multiHtml(item),
@@ -3024,13 +2965,7 @@
     const color     = rarityColor(item.rarity);
     const forgeStr  = item.forgeLevel ? `+${item.forgeLevel}` : "";
     const activeFC  = state.filters.get(state.activeFilterKey) ?? mkFC([]);
-    const adjResult = adjustedRec(item, activeFC, state.activeFilterKey, selfCtx());
-    const _btIcon  = adjResult?.mode === "defensive" ? "🛡" : "🗡";
-    const _btCol   = adjResult ? (adjResult.bump > 0 ? (adjResult.mode === "defensive" ? "#60a5fa" : "#f97316") : "#94a3b8") : "";
-    const _btLabel = adjResult?.mode === "defensive" ? "EHP" : "DPS";
-    const bumpTag  = adjResult
-      ? `<span style="color:${_btCol};font-size:10px;" title="${_btLabel}-Anpassung: ${adjResult.bump>0?"+":""}${adjResult.bump} Score → ${adjResult.rec.label}"> ${_btIcon}${adjResult.rec.label}</span>`
-      : "";
+    const bumpTag  = "";
     const sortedDiffs = [...item.diffs].sort((a,b) => {
       const wa = activeFC.preferredStats.has(a.stat) ? 2 : activeFC.stats.has(a.stat) ? 1 : 0;
       const wb = activeFC.preferredStats.has(b.stat) ? 2 : activeFC.stats.has(b.stat) ? 1 : 0;
@@ -4323,13 +4258,6 @@
           if (fc) { fc.enabled = !fc.enabled; saveFilters(); render(); }
         });
       });
-      body.querySelectorAll("[data-fmode]").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const fc = state.filters.get(btn.dataset.fmode);
-          if (fc) { fc.mode = fc.mode === "aggressive" ? "defensive" : "aggressive"; saveFilters(); render(); }
-        });
-      });
       body.querySelectorAll("[data-edit]").forEach((btn) => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -4356,7 +4284,7 @@
         const newName = (document.getElementById("aimSgFeName")?.value||fe.key).trim();
         const oldFC   = state.filters.get(fe.key);
         if (newName!==fe.key) state.filters.delete(fe.key);
-        state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus, [...(fe.preferredStats ?? [])], oldFC?.mode ?? "defensive", [...(fe.optional ?? [])], [...(fe.avoid ?? [])]));
+        state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus, [...(fe.preferredStats ?? [])], [...(fe.optional ?? [])], [...(fe.avoid ?? [])]));
         if (state.activeFilterKey===fe.key) {
           state.activeFilterKey = newName;
           localStorage.setItem("aim_sgActiveFilter", newName);
