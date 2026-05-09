@@ -2,6 +2,8 @@
 
 Quick-reference for iterating on scoring logic, filters, and item data in `modules/aim-loot-helper.js`.
 
+Current version: **8.53.0**
+
 ---
 
 ## Scoring System
@@ -39,8 +41,9 @@ const SCORE_CONFIG = {
   avoidMultiplierCompleteItem:        0,  // ×0 if all must-have AND preferred present
   avoidMultiplierPreferredMissing:  0.5,  // ×0.5 if preferred missing
   avoidMultiplierMustHaveMissing:     1,  // ×1.0 if must-have missing
-  upgradeThreshold:                  10,  // score ≥ this → Interesting
-  downgradeThreshold:               -10,  // score < this → Salvage
+  bisThreshold:                      50,  // score ≥ this + all must-haves present → BiS
+  topThreshold:                      25,  // score ≥ this → Top
+  goodThreshold:                      0,  // score ≥ this → Good (below → Salvage)
 };
 ```
 
@@ -89,26 +92,35 @@ Avoid is opportunity cost, not a flat punishment. If an item has everything you 
 - **Neutral** (stats in neither set): `normDelta × 10` for all stats not in any set.
 - **Multi-roll bonus**: flat score addition from `fc.multiBonus` when `multiRollCount > 0`.
 
-### Result thresholds
+### Result tiers
 
 | Label | Condition |
 |---|---|
-| ✅ Top Pick | score ≥ 50 |
-| 👍 Interesting | score ≥ 10 |
-| ↔ Neutral | score ≥ −10 |
-| 💾 Salvage | score < −10 |
+| ⭐ BiS | all must-haves present **and** score ≥ 50 |
+| ✅ Top | score ≥ 25 |
+| 👍 Good | score ≥ 0 |
+| 💾 Salvage | score < 0 |
 
-The old qualification gate (`_qualifies`) is removed — the -100 coverage penalty makes any item missing a must-have score far below Interesting automatically.
+BiS requires both conditions — a high score alone is not enough if any must-have is missing.
+The -100 must-have penalty ensures any item missing a must-have scores well below 0 automatically.
 
 ### Roll quality cap (`applyQualityCap`)
 
 Applied after scoring, can only lower the result:
-- Median roll quality < 75%: capped at Neutral (unless `allStats` is present)
+- Median roll quality < 75%: capped at Good (exception: `allStats` present forces exactly Good, prevents Salvage too)
 - Weapon with ATK quality < 75% and no multi-roll: capped at Salvage
 
-### Debug breakdown
+### Slot eligibility
 
-`calcFilterScore` returns a full breakdown object stored per-filter on every item:
+Stats ineligible for a given slot are skipped during scoring — they don't incur must-have penalties or preferred bonuses. This prevents e.g. "ATK must-have" penalising a chest piece that cannot roll ATK.
+
+`eligibleStatsForItem(item)` routes by `slotType`, `weaponSubType`, and `armorWeight` to return the correct `Set` from `SLOT_STAT_POOLS`. Returns `null` for unknown slots (all stats treated as eligible).
+
+`calcFilterScore` receives this set as the `eligibleStats` param. Ineligible stats appear in `reasons[]` with `tier:"ineligible"` for Debug tab display.
+
+### Score breakdown object
+
+`calcFilterScore` returns a full breakdown stored per-filter on every item at `item.filterBreakdowns[filterKey]`:
 
 ```js
 {
@@ -130,7 +142,7 @@ Applied after scoring, can only lower the result:
 }
 ```
 
-`reasons[]` has one entry per tracked stat. Used by the Debug tab to show the full per-stat breakdown. `item.filterBreakdowns[filterKey]` accesses this for any item.
+`reasons[]` has one entry per tracked stat (plus ineligible entries). Used by the Debug tab.
 
 ---
 
@@ -140,7 +152,6 @@ Applied after scoring, can only lower the result:
 mkFC(stats, enabled, multiBonus, preferredStats, optional, avoid)
 // Returns: { stats: Set, preferredStats: Set, optional: Set, avoid: Set,
 //            enabled: bool, multiBonus: {} }
-// Note: no `mode` field — mode was removed (see history below)
 ```
 
 ### Filter chip states
@@ -157,6 +168,18 @@ Cycle order: Neutral → Must have → Preferred → Optional → Avoid → Neut
 
 Serialised to `localStorage` key `aim_sgFilters` via `saveFilters()` / `loadFilters()`.
 
+### Filter row actions
+
+- **⎘ Duplicate** — copies the filter, names it `[Name]_Copy`
+- **✏ Edit** — opens the edit panel below the row
+- **✗ Delete** — removes the filter (hidden when only one filter exists)
+
+### Edit panel actions
+
+- **Save** — renames and persists the filter
+- **Clean** — resets all chip selections to Neutral (does not save until Save is clicked)
+- **✗ Cancel** — discards unsaved changes
+
 ### Default filters (first load, no saved data)
 
 | Filter | Must have (★) | Preferred (♥) | Optional (◎) | Avoid (✗) |
@@ -172,11 +195,24 @@ Serialised to `localStorage` key `aim_sgFilters` via `saveFilters()` / `loadFilt
 ## Stat Keys (internal)
 
 ```
-atk, atkSpeed, critChance, critDamage, def, hp, mana, healPower (healingPower),
-cdr (cooldownReduction), manaRegen, dropRate, allStats
+atk, atkSpeed, critChance, critDmg, def, hp, mana, healPower,
+cdr, manaRegen, dropRate, allStats,
+goldFind, hpOnKill, manaOnKill, execute
 ```
 
-`normStatKey()` maps server field names to these canonical keys.
+`normStatKey()` maps game API field names to these canonical keys (`STAT_KEY_MAP`).
+`TOOLTIP_STAT_MAP` maps uppercase tooltip label strings to canonical keys.
+
+### New stats (v8.51.0)
+
+| Key | Label | Description |
+|---|---|---|
+| `goldFind` | Gold | Boost gold from mob kills |
+| `hpOnKill` | HP/k | Restore HP after every kill |
+| `manaOnKill` | Mana/k | Restore mana after every kill |
+| `execute` | Exec. | Bonus damage to enemies below 30% HP |
+
+Roll ranges are placeholder estimates — update `BONUS_STAT_RANGES` once real values are observed in-game.
 
 ---
 
@@ -186,49 +222,62 @@ cdr (cooldownReduction), manaRegen, dropRate, allStats
 
 | Slot | Primary | Possible Bonus Stats |
 |---|---|---|
-| Sword / Spear | atk | critChance, critDamage, hp, def, atkSpeed, allStats |
-| Bow | atk | critChance, critDamage, atk (multi), hp, atkSpeed, allStats |
-| Staff / Harp | atk | mana, healPower, cdr, hp, atkSpeed, allStats |
-| Fan | atk | mana, critChance, critDamage, cdr, atkSpeed, allStats |
+| Sword / Spear | atk | critChance, critDmg, hp, def, atkSpeed, allStats, hpOnKill, manaOnKill, execute |
+| Bow | atk | critChance, critDmg, hp, atkSpeed, allStats, hpOnKill, manaOnKill, execute |
+| Staff / Harp | atk | mana, healPower, cdr, hp, atkSpeed, allStats, hpOnKill, manaOnKill, execute |
+| Fan | atk | mana, critChance, critDmg, cdr, atkSpeed, allStats, hpOnKill, manaOnKill, execute |
 
 ### Accessories
 
 | Slot | Possible Bonus Stats |
 |---|---|
-| Amulet | mana, healPower, cdr, critChance, atkSpeed, dropRate, manaRegen, allStats |
-| Ring | critChance, critDamage, mana, healPower, cdr, hp, atkSpeed, dropRate, manaRegen, allStats |
+| Amulet | mana, healPower, cdr, critChance, atkSpeed, dropRate, manaRegen, allStats, goldFind, hpOnKill, manaOnKill, execute |
+| Ring | critChance, critDmg, mana, healPower, cdr, hp, atkSpeed, dropRate, manaRegen, allStats, goldFind, hpOnKill, manaOnKill, execute |
 
-### Light Armor (caster / DPS / utility — no hp/def/healPower bonus)
+### Light Armor (caster / DPS / utility)
 
 | Slot | Primary | Possible Bonus Stats |
 |---|---|---|
-| Helmet | def 3–4 | mana, cdr, critChance, atkSpeed, manaRegen, allStats |
-| Shoulders | def 3–4 | cdr, critChance, atkSpeed, manaRegen, allStats |
-| Chest | def 4–6 | mana, cdr, critChance, critDamage, atkSpeed, manaRegen, dropRate, allStats |
-| Hands | atk 2–3 | critChance, critDamage, atk, cdr, atkSpeed, manaRegen, allStats |
-| Legs | def 3–4 | mana, cdr, critDamage, atkSpeed, manaRegen, allStats |
-| Boots | def 3–4 | mana, cdr, atkSpeed, critChance, manaRegen, allStats |
+| Helmet | def 3–4 | mana, cdr, critChance, atkSpeed, manaRegen, allStats, hpOnKill, manaOnKill |
+| Shoulders | def 3–4 | cdr, critChance, atkSpeed, manaRegen, allStats, hpOnKill, execute |
+| Chest | def 4–6 | mana, cdr, critChance, critDmg, atkSpeed, manaRegen, dropRate, allStats, hpOnKill |
+| Hands | atk 2–3 | critChance, critDmg, cdr, atkSpeed, manaRegen, allStats, hpOnKill, goldFind, execute |
+| Legs | def 3–4 | mana, cdr, critDmg, atkSpeed, manaRegen, allStats, hpOnKill, manaOnKill |
+| Boots | def 3–4 | mana, cdr, atkSpeed, critChance, manaRegen, allStats, hpOnKill, goldFind |
 | Shield | def 4–6 | mana, cdr, manaRegen, allStats *(always light)* |
 
-### Heavy Armor (Spear only — no crit/mana/cdr/atkSpeed bonus)
+### Heavy Armor (Spear only)
 
 | Slot | Primary | Possible Bonus Stats |
 |---|---|---|
-| Helmet | def 4–5 | hp, def, healPower, manaRegen, allStats |
-| Shoulders | def 4–5 | hp, def, healPower, manaRegen, allStats |
-| Chest | def 6–8 | hp, def, healPower, manaRegen, allStats |
-| Hands | def 3–4 | hp, def, healPower, manaRegen, allStats |
-| Legs | def 4–5 | hp, def, healPower, manaRegen, allStats |
-| Boots | def 4–5 | hp, def, healPower, manaRegen, allStats |
+| Helmet | def 4–5 | hp, healPower, manaRegen, allStats, hpOnKill, manaOnKill |
+| Shoulders | def 4–5 | hp, healPower, manaRegen, allStats, hpOnKill, execute |
+| Chest | def 6–8 | hp, healPower, manaRegen, allStats, hpOnKill |
+| Hands | def 3–4 | hp, healPower, manaRegen, allStats, hpOnKill, goldFind, execute |
+| Legs | def 4–5 | hp, healPower, manaRegen, allStats, hpOnKill, manaOnKill |
+| Boots | def 4–5 | hp, healPower, manaRegen, allStats, hpOnKill, goldFind |
 
 **Notes:**
 - Lifesteal is **not** a gear stat — comes from Vampiric runes or ability-tree passives only.
 - Heavy armor is Spear-exclusive. All other classes use light armor.
 - Shield is always light regardless of class.
+- `def` no longer appears as a bonus stat in heavy armor rows — it is the primary, not a bonus.
 
 ---
 
 ## Design History
+
+### New stats: goldFind, hpOnKill, manaOnKill, execute (v8.51.0)
+
+Four new gear bonus stats added with full slot pool coverage and filter chip support. Roll ranges in `BONUS_STAT_RANGES` are guesses pending real in-game observation.
+
+### BiS/Top/Good/Salvage verdict tiers (v8.50.0)
+
+Replaced the old four-tier system (Top Pick / Interesting / Neutral / Salvage) with semantically clearer tiers. The Neutral tier was removed — with normalized deltas the score itself carries that meaning. BiS introduces a dual condition: high score *and* all must-haves present, separating "perfect item" from "great item".
+
+### Slot eligibility (v8.49.0)
+
+Added `SLOT_STAT_POOLS` and `eligibleStatsForItem()`. Stats that cannot roll on a given slot are skipped in scoring so must-have penalties don't fire on impossible rolls. Debug tab added to show per-item, per-filter score breakdowns. History and Rating tabs removed.
 
 ### Why layered scoring (v8.48.0)
 
@@ -242,29 +291,23 @@ Each filter previously had a 🗡 aggressive / 🛡 defensive toggle that added 
 
 ---
 
-## Known Improvement Areas
-
-### Optional / Avoid scoring
-
-`optional` and `avoid` are now fully wired into scoring (optional ×3, avoid opportunity cost). Future iterations may tune these weights using Debug tab feedback.
-
-### Debug tab (planned)
-
-A Debug tab will show `filterBreakdowns` for every bag item — per-filter, per-stat breakdown of `reasons[]`, coverage scores, caps, and final verdict. This is the main tool for validating and tuning `SCORE_CONFIG`.
-
----
-
 ## Key File Locations
 
 | Thing | Location |
 |---|---|
-| SCORE_CONFIG | ~line 245 |
-| calcFilterScore | ~line 1234 |
-| recommendation / categoryOf | ~line 1362 |
-| applyQualityCap | ~line 1380 |
-| Filter model: mkFC, loadFilters, saveFilters | ~line 264 |
-| Default filters: DEFAULT_FILTERS | ~line 237 |
-| Chip state info: statChipInfo | ~line 793 |
-| Stat key map: STAT_KEY_MAP, STAT_DEFS | ~line 140 |
-| Slot tables: RARITY_STAT_SLOTS | ~line 37 |
-| Sub-tier breakpoints: SUB_TIER_BREAKPOINTS | ~line 78 |
+| `MODULE_VERSION` | line 4 (IIFE scope) |
+| `STAT_KEY_MAP`, `STAT_DEFS` | ~line 27 |
+| `SLOT_PRIMARY_STAT` | ~line 52 |
+| `BONUS_STAT_RANGES` | ~line 107 |
+| `TOOLTIP_STAT_MAP` | ~line 216 |
+| `DEFAULT_FILTERS` | ~line 257 |
+| `SLOT_STAT_POOLS` | ~line 265 |
+| `eligibleStatsForItem` | ~line 293 |
+| `SCORE_CONFIG` | ~line 303 |
+| `mkFC`, `loadFilters`, `saveFilters` | ~line 327 |
+| `statChipInfo` | ~line 839 |
+| `calcFilterScore` | ~line 1295 |
+| `recommendation` / `categoryOf` | ~line 1427 |
+| `applyQualityCap` | ~line 1444 |
+| `RARITY_STAT_SLOTS` | ~line 38 |
+| `SUB_TIER_BREAKPOINTS` | ~line 81 |
