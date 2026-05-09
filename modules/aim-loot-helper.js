@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.58.0';
+  const MODULE_VERSION = '8.59.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -759,8 +759,9 @@
     for (const item of (equippedArray || [])) {
       if (!item.equippedSlot) continue;
       const raw  = item.equippedSlot;
-      const slot = raw === "ring1" ? "Ring 1"
-                 : raw === "ring2" ? "Ring 2"
+      const slot = raw === "ring1"   ? "Ring 1"
+                 : raw === "ring2"   ? "Ring 2"
+                 : raw === "offhand" ? "Shield"
                  : raw.charAt(0).toUpperCase() + raw.slice(1);
       map[slot] = item;
     }
@@ -1616,8 +1617,9 @@
     for (const item of inventory) {
       if (!item.equippedSlot || !GEAR_ITEM_TYPES.has(item.type)) continue;
       const raw  = item.equippedSlot;
-      const slot = raw === "ring1" ? "Ring 1"
-                 : raw === "ring2" ? "Ring 2"
+      const slot = raw === "ring1"   ? "Ring 1"
+                 : raw === "ring2"   ? "Ring 2"
+                 : raw === "offhand" ? "Shield"
                  : raw.charAt(0).toUpperCase() + raw.slice(1);
       equippedMap[slot] = item;
     }
@@ -4777,7 +4779,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.58.0',
+    version:     '8.59.0',
     category:    'fighter',
   });
 })();
