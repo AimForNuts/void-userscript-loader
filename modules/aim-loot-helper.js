@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.62.0';
+  const MODULE_VERSION = '8.63.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -583,15 +583,23 @@
         if (Object.keys(out).length) return out;
       }
     } catch {}
-    // Fallback: read Supabase auth token directly from localStorage
-    // (fetch hook on sandbox window never sees game's own requests)
+    // Scan all localStorage entries for any JWT-shaped access_token
+    // (sandbox window.fetch never intercepts game requests, so sniffing fails)
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (!key || !key.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
-        const val = JSON.parse(localStorage.getItem(key) || "null");
-        const token = val?.access_token;
-        if (token) return { authorization: `Bearer ${token}` };
+        if (!key) continue;
+        let val;
+        try { val = JSON.parse(localStorage.getItem(key) || "null"); } catch { continue; }
+        if (!val || typeof val !== "object") continue;
+        const token =
+          val.access_token                  ||
+          val.token                         ||
+          val.currentSession?.access_token  ||
+          val.session?.access_token;
+        if (token && typeof token === "string" && token.startsWith("eyJ")) {
+          return { authorization: `Bearer ${token}` };
+        }
       }
     } catch {}
     return {};
@@ -3486,37 +3494,19 @@
     render();
 
     const salvaged = [];
-    const failed   = [];
 
-    try {
-      const result    = await salvageItemsBatch(items);
-      salvaged.push(...items);
-      for (const item of items) state.salvageSelectedIds.delete(String(item.id));
+    const result = await salvageItemsBatch(items);
+    salvaged.push(...items);
+    for (const item of items) state.salvageSelectedIds.delete(String(item.id));
 
-      const goldGained = Number(result?.goldGained || result?.gold || 0);
-      const matsGained = result?.materialsGained || result?.materials || null;
-      let extra = goldGained ? ` · +${fmt(goldGained)}g` : "";
-      if (matsGained && typeof matsGained === "object") {
-        const mats = Object.entries(matsGained).map(([k, v]) => `${v} ${k}`).join(", ");
-        if (mats) extra += ` · ${mats}`;
-      }
-      state.salvageStatus = `Salvaged ${salvaged.length} item(s)${extra}.`;
-    } catch (batchErr) {
-      console.warn("[Loot Helper] Batch salvage failed, falling back to per-item salvage", batchErr);
-      for (const item of items) {
-        try {
-          await salvageOneItem(item);
-          salvaged.push(item);
-          state.salvageSelectedIds.delete(String(item.id));
-        } catch (err) {
-          failed.push({ item, error: err?.message || String(err) });
-        }
-      }
-      state.salvageStatus = failed.length
-        ? `Salvaged ${salvaged.length}/${items.length}. Failed: ${failed.slice(0, 3).map(f => `${compactItemLabel(f.item)} (${f.error})`).join("; ")}${failed.length > 3 ? "…" : ""}`
-        : `Salvaged ${salvaged.length} item(s).`;
-      if (failed.length) console.warn("[Loot Helper] Salvage failures", failed);
+    const goldGained = Number(result?.goldGained || result?.gold || 0);
+    const matsGained = result?.materialsGained || result?.materials || null;
+    let extra = goldGained ? ` · +${fmt(goldGained)}g` : "";
+    if (matsGained && typeof matsGained === "object") {
+      const mats = Object.entries(matsGained).map(([k, v]) => `${v} ${k}`).join(", ");
+      if (mats) extra += ` · ${mats}`;
     }
+    state.salvageStatus = `Salvaged ${salvaged.length} item(s)${extra}.`;
 
     if (salvaged.length) {
       const done = new Set(salvaged.map(item => String(item.id)));
