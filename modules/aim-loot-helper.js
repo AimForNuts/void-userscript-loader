@@ -511,10 +511,12 @@
       }
       const m = url.match(/\/api\/player\/([^/?]+)\/inspect/);
       if (m) {
+        console.log("[aim] fetch caught inspect url:", m[1]);
         res.clone().json().then(data => {
           const equipped = Array.isArray(data.equipped) ? data.equipped
                          : Array.isArray(data.equippedItems) ? data.equippedItems
                          : Array.isArray(data.items) ? data.items : null;
+          console.log("[aim] fetch data.id:", data?.id, "equipped type:", typeof data?.equipped, "isArray:", Array.isArray(data?.equipped));
           if (equipped) {
             const payload = { ...data, equipped };
             const urlId = (data.id || m[1]).toLowerCase();
@@ -529,7 +531,7 @@
               console.log("[aim] no matching pendingModalInfo for", urlId);
             }
           }
-        }).catch(() => {});
+        }).catch(e => console.log("[aim] fetch json error:", e));
       }
       return res;
     };
