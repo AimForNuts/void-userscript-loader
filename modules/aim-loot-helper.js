@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.64.0';
+  const MODULE_VERSION = '8.65.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -589,18 +589,23 @@
         if (Object.keys(out).length) return out;
       }
     } catch {}
-    // Scan all localStorage entries for any JWT-shaped access_token
+    // Scan all localStorage entries for any JWT — bare string or nested object
     try {
       for (let i = 0; i < _pageLS.length; i++) {
         const key = _pageLS.key(i);
         if (!key) continue;
+        const raw = _pageLS.getItem(key);
+        if (!raw) continue;
+        // Bare JWT string (e.g. localStorage key "authToken")
+        if (raw.startsWith("eyJ")) return { authorization: `Bearer ${raw}` };
+        // JSON object containing access_token / token / nested session
         let val;
-        try { val = JSON.parse(_pageLS.getItem(key) || "null"); } catch { continue; }
+        try { val = JSON.parse(raw); } catch { continue; }
         if (!val || typeof val !== "object") continue;
         const token =
-          val.access_token                  ||
-          val.token                         ||
-          val.currentSession?.access_token  ||
+          val.access_token                 ||
+          val.token                        ||
+          val.currentSession?.access_token ||
           val.session?.access_token;
         if (token && typeof token === "string" && token.startsWith("eyJ")) {
           return { authorization: `Bearer ${token}` };
