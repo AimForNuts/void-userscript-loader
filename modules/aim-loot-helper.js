@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.60.0';
+  const MODULE_VERSION = '8.61.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -192,9 +192,10 @@
     harp:     new Set(["harp"]),
     fan:      new Set(["fan"]),
   };
-  // Weapon families that cannot equip a shield
-  const NO_SHIELD_WEAPONS    = new Set(["bow","crossbow","harp","fan","staff","wand","scepter","scythe"]);
-  const CAN_WEAR_HEAVY_ARMOR = new Set(["spear"]);
+  // Weapon types that cannot equip a shield (offhand) — spear and fan can
+  const NO_SHIELD_WEAPONS    = new Set(["bow","crossbow","harp","staff","wand","scepter","scythe","sword","axe","mace","dagger"]);
+  // Weapon types that can wear heavy armor — spear and fan only; all others light only
+  const CAN_WEAR_HEAVY_ARMOR = new Set(["spear","fan"]);
 
   const CATEGORIES = [
     { key:"bis",  label:"BiS"     },
@@ -1059,8 +1060,8 @@
       } else if (armorWeight === "heavy" && !CAN_WEAR_HEAVY_ARMOR.has(chatEqWeapon.type)) {
         chatRestricted = true;
       }
-      if (chatRestricted && (chatCat === "bis" || chatCat === "top")) {
-        rec = { label:"👍 Good", cls:"rec-good" };
+      if (chatRestricted) {
+        rec = { label:"💾 Salvage", cls:"rec-sal" };
       }
     }
 
@@ -1787,8 +1788,8 @@
         classRestricted = true;
       }
     }
-    if (classRestricted && (cat === "bis" || cat === "top")) {
-      rec = { label:"👍 Good", cls:"rec-good" }; cat = "good";
+    if (classRestricted) {
+      rec = { label:"💾 Salvage", cls:"rec-sal" }; cat = "sal";
     }
 
     return {
