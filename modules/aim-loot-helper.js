@@ -485,10 +485,12 @@
   // Pending inspect data keyed by playerId (captured from fetch intercept)
   const pendingInspect = {};
 
-  // Hook fetch to capture inspect responses, auth headers, mail/salvage endpoints
-  (function hookInspectFetch() {
+  // Hook fetch to capture inspect responses, auth headers, mail/salvage endpoints.
+  // Re-entrant: safe to call again if the game overwrites window.fetch after us.
+  function installFetchHook() {
+    if (window.fetch?._aimHooked) return; // already our hook on top
     const _orig = window.fetch;
-    window.fetch = async function(...args) {
+    const hook = async function(...args) {
       const url = typeof args[0] === "string" ? args[0] : (args[0]?.url ?? "");
       if (/\/api\//i.test(url)) rememberApiAuthFromFetchArgs(args);
       const res = await _orig.apply(this, args);
@@ -516,7 +518,7 @@
           const equipped = Array.isArray(data.equipped) ? data.equipped
                          : Array.isArray(data.equippedItems) ? data.equippedItems
                          : Array.isArray(data.items) ? data.items : null;
-          console.log("[aim] fetch data.id:", data?.id, "equipped type:", typeof data?.equipped, "isArray:", Array.isArray(data?.equipped));
+          console.log("[aim] fetch data.id:", data?.id, "isArray equipped:", Array.isArray(data?.equipped));
           if (equipped) {
             const payload = { ...data, equipped };
             const urlId = (data.id || m[1]).toLowerCase();
@@ -535,7 +537,14 @@
       }
       return res;
     };
-  })();
+    hook._aimHooked = true;
+    window.fetch = hook;
+    console.log("[aim] fetch hook installed");
+  }
+  installFetchHook();
+  // Reinstall after game finishes its own async setup (which may overwrite window.fetch)
+  setTimeout(installFetchHook, 1500);
+  setTimeout(installFetchHook, 4000);
 
   const API_AUTH_HEADERS_KEY = "voididle.aim.apiAuthHeaders.v1";
 
