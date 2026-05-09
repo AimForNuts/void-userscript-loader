@@ -1,68 +1,159 @@
 # Aim Loot Helper — Developer Reference
 
-A quick-reference for iterating on scoring logic, filters, and item data in `modules/aim-loot-helper.js`.
+Quick-reference for iterating on scoring logic, filters, and item data in `modules/aim-loot-helper.js`.
 
 ---
 
 ## Scoring System
 
-### Base stat score (`calcPrefScore`)
+### Overview
 
-Each stat that changed vs. equipped item contributes to a score:
+Scoring is layered. No flat additive weights. Must-have stats dominate; preferred contributes but is capped; avoid is opportunity cost; neutral/optional are small tie-breakers.
 
-| Filter state | Field | Score per changed stat |
-|---|---|---|
-| Must have (★) | `preferredStats` | ±4 |
-| Preferred (♥) | `stats` | ±2 |
-| Optional (◎) | `optional` | **unscored** (stored, not weighted) |
-| Avoid (✗) | `avoid` | **unscored** (stored, not weighted) |
-| Neutral | *(not in any set)* | ±0.5 |
+```
+finalScore =
+  mustHaveCoverageScore   (presence/absence of must-have stats)
+  + mustHavePowerScore    (normalized magnitude of must-have improvement)
+  + cappedPreferredScore  (preferred delta, capped vs must-have power)
+  + avoidOpportunityCost  (penalty when avoided stat occupies a roll slot)
+  + neutralScore          (small delta contribution from untracked stats)
+  + optionalScore         (tiny contribution from optional stats)
+  + multiRollBonus        (flat bonus from multiBonus config per stat)
+```
 
-Direction: `+` if new item > equipped, `−` if new item < equipped.
+### SCORE_CONFIG (all values configurable)
 
-Multi-roll bonus adds a flat value (0–3) per stat configured in `fc.multiBonus` when the item has a multi-roll.
+```js
+const SCORE_CONFIG = {
+  mustHaveMissingPenalty:          -100,  // per missing must-have stat
+  mustHavePresentBonus:              25,  // per present must-have stat
+  mustHavePowerWeight:              100,  // normDelta × this for must-have
+  preferredPowerWeight:              35,  // normDelta × this for preferred
+  neutralPowerWeight:                10,  // normDelta × this for untracked
+  optionalPowerWeight:                3,  // normDelta × this for optional
+  preferredNegativeCapRatio:        0.4,  // max preferred can subtract = mustHavePower × 0.4
+  preferredPositiveCapRatio:        0.6,  // max preferred can add     = mustHavePower × 0.6
+  preferredFallbackNegativeCap:      20,  // fallback cap when mustHavePower ≈ 0
+  preferredFallbackPositiveCap:      20,
+  avoidBasePenalty:                 -20,  // base penalty when avoided stat is on item
+  avoidMultiplierCompleteItem:        0,  // ×0 if all must-have AND preferred present
+  avoidMultiplierPreferredMissing:  0.5,  // ×0.5 if preferred missing
+  avoidMultiplierMustHaveMissing:     1,  // ×1.0 if must-have missing
+  upgradeThreshold:                  10,  // score ≥ this → Interesting
+  downgradeThreshold:               -10,  // score < this → Salvage
+};
+```
 
-### Qualification gate (`_qualifies`)
+### Component details
 
-Top Pick and Interesting also require the item to *qualify*:
-- At least `min(2, totalTrackedStats)` tracked stats (must-have + preferred) improved **OR**
-- A tracked stat was multi-rolled
+#### Must-have coverage + power (`fc.preferredStats`)
 
-### Thresholds (`recommendation`)
+For each must-have stat:
+- **Missing from candidate** → `mustHaveCoverageScore += -100`
+- **Present on candidate** → `mustHaveCoverageScore += 25`, `mustHavePowerScore += normDelta × 100`
+
+`normDelta(stat) = (candidateValue - equippedValue) / equippedValue`
+— safe against zero-equipped: returns 1 if stat is new on candidate, 0 if both zero.
+
+A single missing must-have (-100) dominates almost any other positive contribution.
+
+#### Preferred power (`fc.stats`)
+
+For each preferred stat: `rawPreferredScore += normDelta × 35`
+
+Then capped so preferred cannot erase a strong must-have result:
+```
+mustHaveMagnitude = abs(mustHavePowerScore)
+negCap = mustHaveMagnitude > 1  ?  mustHaveMagnitude × 0.4  :  20
+posCap = mustHaveMagnitude > 1  ?  mustHaveMagnitude × 0.6  :  20
+cappedPreferredScore = clamp(rawPreferredScore, -negCap, +posCap)
+```
+
+#### Avoid opportunity cost (`fc.avoid`)
+
+Only applied when the candidate item **actually has** the avoided stat:
+```
+multiplier =
+  mustHaveMissingCount > 0   →  1.0   (full penalty)
+  preferredMissingCount > 0  →  0.5   (half penalty)
+  else (complete item)       →  0.0   (no penalty)
+
+avoidOpportunityCost += avoidBasePenalty × multiplier  (per avoided stat present)
+```
+
+Avoid is opportunity cost, not a flat punishment. If an item has everything you want plus an avoided stat, the avoided stat is forgiven.
+
+#### Optional, Neutral, Multi-roll
+
+- **Optional** (`fc.optional`): `normDelta × 3` per stat. Tiny tie-breaker only.
+- **Neutral** (stats in neither set): `normDelta × 10` for all stats not in any set.
+- **Multi-roll bonus**: flat score addition from `fc.multiBonus` when `multiRollCount > 0`.
+
+### Result thresholds
 
 | Label | Condition |
 |---|---|
-| ✅ Top Pick | score ≥ 4 AND qualifies |
-| 👍 Interesting | score ≥ 1 AND qualifies |
-| ↔ Neutral | score ≥ −1 |
-| 💾 Salvage | score < −1 |
+| ✅ Top Pick | score ≥ 50 |
+| 👍 Interesting | score ≥ 10 |
+| ↔ Neutral | score ≥ −10 |
+| 💾 Salvage | score < −10 |
+
+The old qualification gate (`_qualifies`) is removed — the -100 coverage penalty makes any item missing a must-have score far below Interesting automatically.
 
 ### Roll quality cap (`applyQualityCap`)
 
 Applied after scoring, can only lower the result:
-- Median roll quality < 75%: capped at Neutral (never lower if `allStats` is present)
+- Median roll quality < 75%: capped at Neutral (unless `allStats` is present)
 - Weapon with ATK quality < 75% and no multi-roll: capped at Salvage
 
-### Mode score bump (`adjustedRec`)
+### Debug breakdown
 
-Each filter has a `mode` field (`"aggressive"` | `"defensive"`) that optionally adjusts the final score:
+`calcFilterScore` returns a full breakdown object stored per-filter on every item:
 
-| Mode | Measures | Bump table |
-|---|---|---|
-| 🗡 Aggressive | DPS % change | >5%→+3, >2%→+2, <-2%→-2, <-5%→-3 |
-| 🛡 Defensive | EHP % change (hp × def proxy) | same brackets |
+```js
+{
+  finalScore,
+  mustHaveCoverageScore,
+  mustHavePowerScore,
+  rawPreferredScore,
+  cappedPreferredScore,
+  avoidOpportunityCost,
+  neutralScore,
+  optionalScore,
+  multiRollBonus,
+  mustHaveMissingCount,
+  preferredMissingCount,
+  reasons: [
+    { stat, tier, type, candVal, curVal, delta, contribution },
+    ...
+  ]
+}
+```
 
-**Design note:** Only the Spear (tank) build benefits from Defensive mode. All other classes prioritize attack. A future improvement is to auto-derive mode from filter stats (e.g., if `def` or `hp` is in `preferredStats` → defensive, otherwise aggressive) and remove the manual toggle.
+`reasons[]` has one entry per tracked stat. Used by the Debug tab to show the full per-stat breakdown. `item.filterBreakdowns[filterKey]` accesses this for any item.
 
 ---
 
 ## Filter Data Model
 
 ```js
-mkFC(stats, enabled, multiBonus, preferredStats, mode, optional, avoid)
+mkFC(stats, enabled, multiBonus, preferredStats, optional, avoid)
 // Returns: { stats: Set, preferredStats: Set, optional: Set, avoid: Set,
-//            enabled: bool, multiBonus: {}, mode: "aggressive"|"defensive" }
+//            enabled: bool, multiBonus: {} }
+// Note: no `mode` field — mode was removed (see history below)
 ```
+
+### Filter chip states
+
+| UI label | Internal field | Score role |
+|---|---|---|
+| ★ Must have | `preferredStats` | Coverage ±100, power ×100 |
+| ♥ Preferred | `stats` | Power ×35, capped |
+| ◎ Optional | `optional` | ×3 tie-breaker |
+| ✗ Avoid | `avoid` | Opportunity cost |
+| Neutral | *(not stored)* | ×10 tie-breaker |
+
+Cycle order: Neutral → Must have → Preferred → Optional → Avoid → Neutral
 
 Serialised to `localStorage` key `aim_sgFilters` via `saveFilters()` / `loadFilters()`.
 
@@ -137,23 +228,29 @@ cdr (cooldownReduction), manaRegen, dropRate, allStats
 
 ---
 
+## Design History
+
+### Why layered scoring (v8.48.0)
+
+Old system: flat ±4 / ±2 / ±0.5 per stat. Two preferred stat regressions could cancel a must-have improvement, even though the must-have is what the user actually cares about.
+
+New system: normalized deltas with a cap on how much preferred can influence the result. A strong must-have improvement is protected.
+
+### Why mode was removed (v8.47.0)
+
+Each filter previously had a 🗡 aggressive / 🛡 defensive toggle that added hidden DPS/EHP score bumps. This was implicit magic — the user's intent is already expressed through stat chip states. Scoring is now purely stat-driven.
+
+---
+
 ## Known Improvement Areas
-
-### Mode auto-detection (remove manual toggle)
-
-**Current:** Each filter has a manual 🗡/🛡 toggle. Default is `"defensive"` for all.
-
-**Proposal:** Auto-derive from filter stats — if `def` or `hp` is in `preferredStats`, use defensive mode; otherwise aggressive. Remove the toggle button entirely.
-
-**Impact:** `fc.mode` field removed. `adjustedRec()` derives mode inline. `data-fmode` event handler and `.sg-mode-btn` CSS removed.
 
 ### Optional / Avoid scoring
 
-**Current:** `optional` and `avoid` Sets are stored and displayed but contribute 0 to `calcPrefScore`.
+`optional` and `avoid` are now fully wired into scoring (optional ×3, avoid opportunity cost). Future iterations may tune these weights using Debug tab feedback.
 
-**Ideas:**
-- Avoid: apply a negative weight (e.g., −2) when an avoided stat appears on the item
-- Optional: apply a small positive weight (e.g., +0.5 or +1) — effectively like Neutral but explicitly chosen
+### Debug tab (planned)
+
+A Debug tab will show `filterBreakdowns` for every bag item — per-filter, per-stat breakdown of `reasons[]`, coverage scores, caps, and final verdict. This is the main tool for validating and tuning `SCORE_CONFIG`.
 
 ---
 
@@ -161,11 +258,13 @@ cdr (cooldownReduction), manaRegen, dropRate, allStats
 
 | Thing | Location |
 |---|---|
-| Scoring logic | `calcPrefScore`, `_qualifies`, `recommendation`, `applyQualityCap` (~line 1215) |
-| Mode bump | `_dpsScoreBump`, `_ehpScoreBump`, `adjustedRec` (~line 2713) |
-| Filter model | `mkFC`, `loadFilters`, `saveFilters` (~line 249) |
-| Default filters | `DEFAULT_FILTERS` (~line 237) |
-| Chip state info | `statChipInfo` (~line 761) |
-| Stat key map | `STAT_KEY_MAP`, `STAT_DEFS` (~line 140) |
-| Slot tables | `RARITY_STAT_SLOTS`, `WEAPON_RARITY_STAT_SLOTS` (~line 37) |
-| Sub-tier breakpoints | `SUB_TIER_BREAKPOINTS`, `subTierFromGearReq` (~line 78) |
+| SCORE_CONFIG | ~line 245 |
+| calcFilterScore | ~line 1234 |
+| recommendation / categoryOf | ~line 1362 |
+| applyQualityCap | ~line 1380 |
+| Filter model: mkFC, loadFilters, saveFilters | ~line 264 |
+| Default filters: DEFAULT_FILTERS | ~line 237 |
+| Chip state info: statChipInfo | ~line 793 |
+| Stat key map: STAT_KEY_MAP, STAT_DEFS | ~line 140 |
+| Slot tables: RARITY_STAT_SLOTS | ~line 37 |
+| Sub-tier breakpoints: SUB_TIER_BREAKPOINTS | ~line 78 |
