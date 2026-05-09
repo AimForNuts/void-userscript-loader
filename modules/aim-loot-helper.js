@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.56.0';
+  const MODULE_VERSION = '8.57.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -517,11 +517,16 @@
                          : Array.isArray(data.items) ? data.items : null;
           if (equipped) {
             const payload = { ...data, equipped };
-            pendingInspect[m[1]] = payload;
-            const info = pendingModalInfo[m[1]];
+            const urlId = (data.id || m[1]).toLowerCase();
+            pendingInspect[urlId] = payload;
+            console.log("[aim] fetch urlId:", urlId, "pendingModalInfo keys:", Object.keys(pendingModalInfo));
+            const infoKey = Object.keys(pendingModalInfo).find(k => k.toLowerCase() === urlId);
+            const info = infoKey ? pendingModalInfo[infoKey] : null;
             if (info) {
-              recordSnapshot(m[1], info.username, info.levelText, payload);
+              recordSnapshot(urlId, info.username, info.levelText, payload);
               info.refreshBadge?.();
+            } else {
+              console.log("[aim] no matching pendingModalInfo for", urlId);
             }
           }
         }).catch(() => {});
@@ -4236,8 +4241,12 @@
     let playerId = null;
     if (fkey) {
       let fiber = modal[fkey]; let depth = 0;
-      while (fiber && depth < 12) {
-        if (fiber.memoizedProps?.playerId) { playerId = fiber.memoizedProps.playerId; break; }
+      while (fiber && depth < 20) {
+        const p = fiber.memoizedProps;
+        if (p) {
+          const raw = p.playerId ?? p.targetPlayerId ?? p.inspectPlayerId ?? p.userId ?? p.id ?? null;
+          if (raw && typeof raw === "string" && raw.length > 8) { playerId = raw.toLowerCase(); break; }
+        }
         fiber = fiber.return; depth++;
       }
     }
@@ -4289,6 +4298,7 @@
       badge.appendChild(actionBtn);
 
       pendingModalInfo[playerId] = { username, levelText, refreshBadge };
+      console.log("[aim] badge injected playerId:", playerId, "username:", username);
       const data = pendingInspect[playerId];
       if (data) {
         recordSnapshot(playerId, username, levelText, data);
@@ -4736,7 +4746,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.56.0',
+    version:     '8.57.0',
     category:    'fighter',
   });
 })();
