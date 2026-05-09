@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.63.0';
+  const MODULE_VERSION = '8.64.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -543,6 +543,12 @@
 
   const API_AUTH_HEADERS_KEY = "voididle.aim.apiAuthHeaders.v1";
 
+  // document.defaultView is always the real page Window, bypassing the Tampermonkey
+  // sandbox window proxy. Use it for localStorage and fetch so we access the same
+  // storage and fetch interceptors as the game itself.
+  const _pageLS    = document.defaultView?.localStorage ?? localStorage;
+  const _pageFetch = document.defaultView?.fetch?.bind(document.defaultView) ?? fetch;
+
   function headersToPlainObject(headersLike) {
     const out = {};
     if (!headersLike) return out;
@@ -562,7 +568,7 @@
     for (const key of ["authorization","x-auth-token","x-access-token","x-supabase-auth","apikey","x-csrf-token","x-xsrf-token"]) {
       if (h[key]) keep[key] = h[key];
     }
-    try { localStorage.setItem(API_AUTH_HEADERS_KEY, JSON.stringify({ headers: keep, savedAt: Date.now() })); } catch {}
+    try { _pageLS.setItem(API_AUTH_HEADERS_KEY, JSON.stringify({ headers: keep, savedAt: Date.now() })); } catch {}
   }
 
   function rememberApiAuthFromFetchArgs(args) {
@@ -576,7 +582,7 @@
   function getApiAuthHeaders() {
     // Try previously sniffed headers first
     try {
-      const saved = JSON.parse(localStorage.getItem(API_AUTH_HEADERS_KEY) || "null");
+      const saved = JSON.parse(_pageLS.getItem(API_AUTH_HEADERS_KEY) || "null");
       if (saved?.headers && typeof saved.headers === "object") {
         const out = {};
         for (const [key, value] of Object.entries(saved.headers)) out[key] = value;
@@ -584,13 +590,12 @@
       }
     } catch {}
     // Scan all localStorage entries for any JWT-shaped access_token
-    // (sandbox window.fetch never intercepts game requests, so sniffing fails)
     try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
+      for (let i = 0; i < _pageLS.length; i++) {
+        const key = _pageLS.key(i);
         if (!key) continue;
         let val;
-        try { val = JSON.parse(localStorage.getItem(key) || "null"); } catch { continue; }
+        try { val = JSON.parse(_pageLS.getItem(key) || "null"); } catch { continue; }
         if (!val || typeof val !== "object") continue;
         const token =
           val.access_token                  ||
@@ -607,7 +612,7 @@
 
   async function postJson(url, body, method = "POST") {
     const authHeaders = getApiAuthHeaders();
-    const res = await fetch(url, {
+    const res = await _pageFetch(url, {
       method,
       credentials: "include",
       headers: { "Content-Type": "application/json", ...authHeaders },
