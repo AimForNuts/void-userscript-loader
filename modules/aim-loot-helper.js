@@ -513,33 +513,27 @@
       }
       const m = url.match(/\/api\/player\/([^/?]+)\/inspect/);
       if (m) {
-        console.log("[aim] fetch caught inspect url:", m[1]);
         res.clone().json().then(data => {
           const equipped = Array.isArray(data.equipped) ? data.equipped
                          : Array.isArray(data.equippedItems) ? data.equippedItems
                          : Array.isArray(data.items) ? data.items : null;
-          console.log("[aim] fetch data.id:", data?.id, "isArray equipped:", Array.isArray(data?.equipped));
           if (equipped) {
             const payload = { ...data, equipped };
             const urlId = (data.id || m[1]).toLowerCase();
             pendingInspect[urlId] = payload;
-            console.log("[aim] fetch urlId:", urlId, "pendingModalInfo keys:", Object.keys(pendingModalInfo));
             const infoKey = Object.keys(pendingModalInfo).find(k => k.toLowerCase() === urlId);
             const info = infoKey ? pendingModalInfo[infoKey] : null;
             if (info) {
               recordSnapshot(urlId, info.username, info.levelText, payload);
               info.refreshBadge?.();
-            } else {
-              console.log("[aim] no matching pendingModalInfo for", urlId);
             }
           }
-        }).catch(e => console.log("[aim] fetch json error:", e));
+        }).catch(() => {});
       }
       return res;
     };
     hook._aimHooked = true;
     window.fetch = hook;
-    console.log("[aim] fetch hook installed");
   }
   installFetchHook();
   // Reinstall after game finishes its own async setup (which may overwrite window.fetch)
@@ -4279,17 +4273,11 @@
     function tryResolveSave() {
       if (trackedProfiles[playerId]) return true;
       const fiberData = getEquipped();
-      console.log("[aim] tryResolveSave fiberData:", fiberData ? "ok" : "null", "playerId:", playerId);
       if (!fiberData) return false;
       const usernameEl = modal.querySelector(".inspect-username");
       const username  = usernameEl?.textContent?.trim() || "Unknown";
       const levelText = modal.querySelector(".inspect-level")?.textContent?.trim() ?? "";
-      try {
-        recordSnapshot(playerId, username, levelText, { ...fiberData, equipped: fiberData.equipped });
-        console.log("[aim] recordSnapshot ok, trackedProfiles[id]:", !!trackedProfiles[playerId]);
-      } catch(e) {
-        console.log("[aim] recordSnapshot threw:", e);
-      }
+      recordSnapshot(playerId, username, levelText, { ...fiberData, equipped: fiberData.equipped });
       refreshBadge?.();
       return true;
     }
@@ -4350,12 +4338,17 @@
     }
 
     tryAutoSave();
-    // Keep observing until saved — handles data loading after modal opens
-    const obs = new MutationObserver(() => {
+    // Keep retrying until saved — handles data loading after modal opens.
+    // Poll every 300ms as fallback for React re-renders that don't mutate child nodes.
+    const obs = new MutationObserver(() => { tryAutoSave(); });
+    obs.observe(modal, { childList: true, subtree: true, characterData: true });
+    const poll = setInterval(() => {
       tryAutoSave();
-      if (trackedProfiles[playerId]) obs.disconnect();
-    });
-    obs.observe(modal, { childList: true, subtree: true });
+      if (trackedProfiles[playerId] || !modal.isConnected) {
+        clearInterval(poll);
+        obs.disconnect();
+      }
+    }, 300);
   }
 
   function setupInspectObserver() {
