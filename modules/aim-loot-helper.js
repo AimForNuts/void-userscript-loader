@@ -4279,11 +4279,17 @@
     function tryResolveSave() {
       if (trackedProfiles[playerId]) return true;
       const fiberData = getEquipped();
+      console.log("[aim] tryResolveSave fiberData:", fiberData ? "ok" : "null", "playerId:", playerId);
       if (!fiberData) return false;
       const usernameEl = modal.querySelector(".inspect-username");
       const username  = usernameEl?.textContent?.trim() || "Unknown";
       const levelText = modal.querySelector(".inspect-level")?.textContent?.trim() ?? "";
-      recordSnapshot(playerId, username, levelText, { ...fiberData, equipped: fiberData.equipped });
+      try {
+        recordSnapshot(playerId, username, levelText, { ...fiberData, equipped: fiberData.equipped });
+        console.log("[aim] recordSnapshot ok, trackedProfiles[id]:", !!trackedProfiles[playerId]);
+      } catch(e) {
+        console.log("[aim] recordSnapshot threw:", e);
+      }
       refreshBadge?.();
       return true;
     }
