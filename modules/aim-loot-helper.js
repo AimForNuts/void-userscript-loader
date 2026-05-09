@@ -1,8 +1,6 @@
 ﻿(function () {
   'use strict';
 
-  const MODULE_VERSION = '8.53.0';
-
   function createAimLootHelperModule(definition) {
 
   let _tickInterval = null;
@@ -17,6 +15,8 @@
   /**************************************************************************
    * CONSTANTS
    **************************************************************************/
+
+  const MODULE_VERSION = '8.54.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -4682,7 +4682,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     MODULE_VERSION,
+    version:     '8.54.0',
     category:    'fighter',
   });
 })();
