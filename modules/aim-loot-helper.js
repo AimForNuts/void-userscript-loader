@@ -242,6 +242,25 @@
     { name:"Loot",  mustHave:["dropRate"],  preferred:[],                        optional:["allStats"],   avoid:[] },
   ];
 
+  const SCORE_CONFIG = {
+    mustHaveMissingPenalty:          -100,
+    mustHavePresentBonus:              25,
+    mustHavePowerWeight:              100,
+    preferredPowerWeight:              35,
+    neutralPowerWeight:                10,
+    optionalPowerWeight:                3,
+    preferredNegativeCapRatio:        0.4,
+    preferredPositiveCapRatio:        0.6,
+    preferredFallbackNegativeCap:      20,
+    preferredFallbackPositiveCap:      20,
+    avoidBasePenalty:                 -20,
+    avoidMultiplierCompleteItem:        0,
+    avoidMultiplierPreferredMissing:  0.5,
+    avoidMultiplierMustHaveMissing:     1,
+    upgradeThreshold:                  10,
+    downgradeThreshold:               -10,
+  };
+
   /**************************************************************************
    * FILTER STORAGE
    **************************************************************************/
@@ -928,7 +947,7 @@
     const multiRollCount = Math.max(0, maxSlots - itemStatKeys.size);
     const priorityUps   = diffs.filter(d => d.isUp && activeFC.stats.has(d.stat)).length;
     const hasPriorityMR = multiRollCount > 0 && [...itemStatKeys].some(s => activeFC.stats.has(s));
-    const score = calcPrefScore(diffs, activeFC, multiRollCount, itemStatKeys);
+    const score = calcFilterScore(ttStats, eqBaseStats, activeFC, multiRollCount, itemStatKeys).finalScore;
     let { rec, cat: chatCat } = applyQualityCap(
       recommendation(score, priorityUps, hasPriorityMR, activeFC),
       categoryOf(score, priorityUps, hasPriorityMR, activeFC),
@@ -1212,43 +1231,145 @@
    * LOOT LOGIC
    **************************************************************************/
 
-  function calcPrefScore(diffs, fc, multiRollCount, itemStatKeys) {
-    let score = 0;
-    for (const d of diffs) {
-      const dir = d.isUp ? 1 : -1;
-      if (fc.preferredStats.has(d.stat))      score += dir * 4;
-      else if (fc.stats.has(d.stat))          score += dir * 2;
-      else                                    score += dir * 0.5;
+  function calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys) {
+    const cfg = SCORE_CONFIG;
+
+    function normDelta(stat) {
+      const candVal = ownBaseStats[stat] ?? 0;
+      const curVal  = eqBaseStats[stat]  ?? 0;
+      if (curVal === 0 && candVal === 0) return 0;
+      if (curVal === 0) return candVal > 0 ? 1 : 0;
+      return (candVal - curVal) / curVal;
     }
-    if (multiRollCount > 0) {
-      for (const [stat, bonus] of Object.entries(fc.multiBonus ?? {})) {
-        if (bonus > 0 && itemStatKeys.has(stat)) score += bonus;
+
+    // Must-have coverage + power (fc.preferredStats = "must-have" tier)
+    let mustHaveCoverageScore = 0;
+    let mustHavePowerScore    = 0;
+    let mustHaveMissingCount  = 0;
+    const reasons = [];
+
+    for (const stat of fc.preferredStats ?? []) {
+      const candVal = ownBaseStats[stat] ?? 0;
+      if (candVal === 0) {
+        mustHaveCoverageScore += cfg.mustHaveMissingPenalty;
+        mustHaveMissingCount++;
+        reasons.push({ stat, tier:"mustHave", type:"missing", contribution: cfg.mustHaveMissingPenalty });
+      } else {
+        mustHaveCoverageScore += cfg.mustHavePresentBonus;
+        const delta  = normDelta(stat);
+        const power  = delta * cfg.mustHavePowerWeight;
+        mustHavePowerScore += power;
+        reasons.push({ stat, tier:"mustHave", type:"present", candVal, curVal: eqBaseStats[stat] ?? 0, delta, contribution: cfg.mustHavePresentBonus + power });
       }
     }
-    return score;
+
+    // Preferred power (fc.stats = "preferred" tier)
+    let rawPreferredScore    = 0;
+    let preferredMissingCount = 0;
+
+    for (const stat of fc.stats ?? []) {
+      const candVal = ownBaseStats[stat] ?? 0;
+      if (candVal === 0) preferredMissingCount++;
+      const delta = normDelta(stat);
+      const power = delta * cfg.preferredPowerWeight;
+      rawPreferredScore += power;
+      reasons.push({ stat, tier:"preferred", type: candVal === 0 ? "missing" : "present", candVal, curVal: eqBaseStats[stat] ?? 0, delta, contribution: power });
+    }
+
+    // Cap preferred so it cannot erase a strong must-have result
+    const mustHaveMagnitude = Math.abs(mustHavePowerScore);
+    const negCap = mustHaveMagnitude > 1
+      ? mustHaveMagnitude * cfg.preferredNegativeCapRatio
+      : cfg.preferredFallbackNegativeCap;
+    const posCap = mustHaveMagnitude > 1
+      ? mustHaveMagnitude * cfg.preferredPositiveCapRatio
+      : cfg.preferredFallbackPositiveCap;
+    const cappedPreferredScore = Math.max(-negCap, Math.min(posCap, rawPreferredScore));
+
+    // Avoid — opportunity cost only if candidate actually has the avoided stat
+    let avoidOpportunityCost = 0;
+    for (const stat of fc.avoid ?? []) {
+      if (itemStatKeys.has(stat)) {
+        const mult = mustHaveMissingCount > 0   ? cfg.avoidMultiplierMustHaveMissing
+                   : preferredMissingCount > 0  ? cfg.avoidMultiplierPreferredMissing
+                   :                              cfg.avoidMultiplierCompleteItem;
+        const cost = cfg.avoidBasePenalty * mult;
+        avoidOpportunityCost += cost;
+        reasons.push({ stat, tier:"avoid", type:"present", contribution: cost });
+      }
+    }
+
+    // Optional
+    let optionalScore = 0;
+    for (const stat of fc.optional ?? []) {
+      const delta = normDelta(stat);
+      const power = delta * cfg.optionalPowerWeight;
+      optionalScore += power;
+      reasons.push({ stat, tier:"optional", candVal: ownBaseStats[stat] ?? 0, curVal: eqBaseStats[stat] ?? 0, delta, contribution: power });
+    }
+
+    // Neutral — stats not tracked in any set
+    const allTracked = new Set([
+      ...(fc.preferredStats ?? []),
+      ...(fc.stats          ?? []),
+      ...(fc.optional       ?? []),
+      ...(fc.avoid          ?? []),
+    ]);
+    let neutralScore = 0;
+    const neutralKeys = new Set([...Object.keys(ownBaseStats), ...Object.keys(eqBaseStats)]);
+    for (const stat of neutralKeys) {
+      if (!allTracked.has(stat)) {
+        const delta = normDelta(stat);
+        neutralScore += delta * cfg.neutralPowerWeight;
+      }
+    }
+
+    // Multi-roll bonus (preserved from prior system)
+    let multiRollBonus = 0;
+    if (multiRollCount > 0) {
+      for (const [stat, bonus] of Object.entries(fc.multiBonus ?? {})) {
+        if (bonus > 0 && itemStatKeys.has(stat)) multiRollBonus += bonus;
+      }
+    }
+
+    const finalScore =
+      mustHaveCoverageScore +
+      mustHavePowerScore    +
+      cappedPreferredScore  +
+      avoidOpportunityCost  +
+      neutralScore          +
+      optionalScore         +
+      multiRollBonus;
+
+    return {
+      finalScore,
+      mustHaveCoverageScore,
+      mustHavePowerScore,
+      rawPreferredScore,
+      cappedPreferredScore,
+      avoidOpportunityCost,
+      neutralScore,
+      optionalScore,
+      multiRollBonus,
+      mustHaveMissingCount,
+      preferredMissingCount,
+      reasons,
+    };
   }
 
-  // qualifies = 3+ priority stats improved (scales down for small filters) OR a priority stat multi-rolled
-  function _qualifies(priorityUps, hasPriorityMultiRoll, fc) {
-    const total = (fc?.stats.size ?? 0) + (fc?.preferredStats.size ?? 0);
-    if (!fc || total === 0) return false;
-    const needed = Math.min(2, total);
-    return priorityUps >= needed || hasPriorityMultiRoll;
+  function recommendation(score, _priorityUps, _hasPriorityMultiRoll, _fc) {
+    const cfg = SCORE_CONFIG;
+    if (score >= cfg.upgradeThreshold * 5) return { label:"✅ Top Pick",   cls:"rec-top" };
+    if (score >= cfg.upgradeThreshold)     return { label:"👍 Interesting", cls:"rec-up"  };
+    if (score >= cfg.downgradeThreshold)   return { label:"↔ Neutral",     cls:"rec-neu" };
+    return                                        { label:"💾 Salvage",    cls:"rec-sal" };
   }
 
-  function recommendation(score, priorityUps, hasPriorityMultiRoll, fc) {
-    const q = _qualifies(priorityUps, hasPriorityMultiRoll, fc);
-    if (score >= 4  && q) return { label:"✅ Top Pick", cls:"rec-top"  };
-    if (score >= 1  && q) return { label:"👍 Interesting",  cls:"rec-up"   };
-    if (score >= -1)      return { label:"↔ Neutral",   cls:"rec-neu"  };
-    return                       { label:"💾 Salvage",  cls:"rec-sal"  };
-  }
-
-  function categoryOf(score, priorityUps, hasPriorityMultiRoll, fc) {
-    const q = _qualifies(priorityUps, hasPriorityMultiRoll, fc);
-    if (score >= 4  && q) return "top";
-    if (score >= 1  && q) return "up";
-    if (score >= -1)      return "neu";
+  function categoryOf(score, _priorityUps, _hasPriorityMultiRoll, _fc) {
+    const cfg = SCORE_CONFIG;
+    if (score >= cfg.upgradeThreshold * 5) return "top";
+    if (score >= cfg.upgradeThreshold)     return "up";
+    if (score >= cfg.downgradeThreshold)   return "neu";
     return "sal";
   }
 
@@ -1459,10 +1580,7 @@
         const scoreVs = (eq) => {
           const eqS = {};
           for (const [k, v] of Object.entries(eq.stats)) { if (k !== "_qualities") eqS[normStatKey(k)] = v; }
-          const d = [...new Set([...Object.keys(ownBaseStats), ...Object.keys(eqS)])]
-            .filter(sk => Math.abs((ownBaseStats[sk]??0) - (eqS[sk]??0)) >= 0.001)
-            .map(sk => ({ stat:sk, isUp:(ownBaseStats[sk]??0)>(eqS[sk]??0), isDown:(ownBaseStats[sk]??0)<(eqS[sk]??0) }));
-          return calcPrefScore(d, fc, 0, new Set(Object.keys(ownBaseStats)));
+          return calcFilterScore(ownBaseStats, eqS, fc, 0, new Set(Object.keys(ownBaseStats))).finalScore;
         };
         equippedItem = scoreVs(r1) >= scoreVs(r2) ? r1 : r2;
       } else {
@@ -1497,36 +1615,35 @@
     const itemStatKeys   = new Set(Object.keys(ownBaseStats));
 
     // Score + qualification data per filter
-    const filterScores          = {};
-    const filterPriorityUps     = {};
-    const filterHasPriorityMR   = {};
-    const filterHasPrefMR       = {};
+    const filterScores      = {};
+    const filterBreakdowns  = {};
+    const filterHasPriorityMR = {};
+    const filterHasPrefMR     = {};
     for (const [key, fc] of state.filters) {
-      filterScores[key]        = calcPrefScore(diffs, fc, multiRollCount, itemStatKeys);
-      filterPriorityUps[key]   = diffs.filter(d => d.isUp && (fc.stats.has(d.stat) || fc.preferredStats.has(d.stat))).length;
-      filterHasPriorityMR[key] = multiRollCount > 0 && [...itemStatKeys].some(s => fc.stats.has(s) || fc.preferredStats.has(s));
-      filterHasPrefMR[key]     = multiRollCount > 0 && [...itemStatKeys].some(s => fc.preferredStats.has(s));
+      const bd = calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys);
+      filterScores[key]         = bd.finalScore;
+      filterBreakdowns[key]     = bd;
+      filterHasPriorityMR[key]  = multiRollCount > 0 && [...itemStatKeys].some(s => fc.stats.has(s) || fc.preferredStats.has(s));
+      filterHasPrefMR[key]      = multiRollCount > 0 && [...itemStatKeys].some(s => fc.preferredStats.has(s));
     }
 
     const activeKey     = filterKeyOverride || state.activeFilterKey;
     const activeFC      = state.filters.get(activeKey) ?? mkFC([]);
     const prefScore     = filterScores[activeKey]        ?? 0;
-    const activePriUps  = filterPriorityUps[activeKey]   ?? 0;
     const activePriMR   = filterHasPriorityMR[activeKey] ?? false;
     const activePrefMR  = filterHasPrefMR[activeKey]     ?? false;
 
     let bestFilter = null, bestFilterScore = -Infinity;
     for (const [key, score] of Object.entries(filterScores)) {
       const fc = state.filters.get(key);
-      if (key !== activeKey && fc?.enabled && score > bestFilterScore &&
-          _qualifies(filterPriorityUps[key] ?? 0, filterHasPriorityMR[key] ?? false, fc)) {
+      if (key !== activeKey && fc?.enabled && score > bestFilterScore && score >= SCORE_CONFIG.upgradeThreshold) {
         bestFilterScore = score; bestFilter = key;
       }
     }
 
     let { rec, cat } = applyQualityCap(
-      recommendation(prefScore, activePriUps, activePriMR, activeFC),
-      categoryOf(prefScore, activePriUps, activePriMR, activeFC),
+      recommendation(prefScore, 0, activePriMR, activeFC),
+      categoryOf(prefScore, 0, activePriMR, activeFC),
       rollQualities, multiRollCount, slotType
     );
 
@@ -1595,7 +1712,7 @@
       rollQualities,
       multiRollCount, mrMedianQuality, mrInteresting, activePrefMR, classRestricted,
       shards: item.sellPrice,
-      filterScores, filterPriorityUps, filterHasPriorityMR, filterHasPrefMR,
+      filterScores, filterBreakdowns, filterHasPriorityMR, filterHasPrefMR,
       prefScore, bestFilter, bestFilterScore,
       rec, cat,
       isLegacyStar: item.forgeTier === "starforged",
@@ -2329,17 +2446,18 @@
           <b>What is a filter?</b> A filter scores every bag item by comparing its base stats to your currently equipped item in the same slot. The active filter (blue dot) drives all item labels and highlights.<br><br>
           <b>Stat tiers — per changed stat:</b>
           <table>
-            <tr><td>★ Must have</td><td>+4 / −4 per stat</td></tr>
-            <tr><td>♥ Preferred</td><td>+2 / −2 per stat</td></tr>
-            <tr><td>(untracked)</td><td>+0.5 / −0.5 per stat</td></tr>
-            <tr><td>◎ Optional / ✗ Avoid</td><td>coming soon — currently unscored</td></tr>
+            <tr><td>★ Must have</td><td>normalized delta × 100, +25 if present, −100 if missing</td></tr>
+            <tr><td>♥ Preferred</td><td>normalized delta × 35 (capped vs must-have power)</td></tr>
+            <tr><td>◎ Optional</td><td>normalized delta × 3</td></tr>
+            <tr><td>✗ Avoid</td><td>−20 opportunity cost if stat is on item (scales with coverage)</td></tr>
+            <tr><td>(untracked)</td><td>normalized delta × 10</td></tr>
           </table>
-          <b>Result labels</b> (Top/Interesting also require ≥ 2 tracked stats improved, OR a tracked stat was multi-rolled):
+          <b>Result labels:</b>
           <table>
-            <tr><td>✅ Top Pick</td><td>score ≥ 4</td></tr>
-            <tr><td>👍 Interesting</td><td>score ≥ 1</td></tr>
-            <tr><td>↔ Neutral</td><td>score ≥ −1</td></tr>
-            <tr><td>💾 Salvage</td><td>score &lt; −1</td></tr>
+            <tr><td>✅ Top Pick</td><td>score ≥ 50</td></tr>
+            <tr><td>👍 Interesting</td><td>score ≥ 10</td></tr>
+            <tr><td>↔ Neutral</td><td>score ≥ −10</td></tr>
+            <tr><td>💾 Salvage</td><td>score &lt; −10</td></tr>
           </table>
           <b>Multi-roll bonus</b> adds a flat score when a multi-rolled item has a specific stat — set per stat in the ✏ edit panel.<br><br>
           <b>Roll quality cap</b>: items with median roll quality &lt; 75% are capped at Neutral; weapons with ATK quality &lt; 75% are capped at Salvage.
@@ -2688,8 +2806,8 @@
       .filter(([k, s]) => {
         if (k === state.activeFilterKey) return false;
         const fc = state.filters.get(k);
-        if (!fc?.enabled || s < 1) return false;
-        return _qualifies(item.filterPriorityUps?.[k] ?? 0, item.filterHasPriorityMR?.[k] ?? false, fc);
+        if (!fc?.enabled) return false;
+        return s >= SCORE_CONFIG.upgradeThreshold;
       })
       .sort(([,a],[,b]) => b-a)
       .map(([k]) => `<span class="sg-filter-tag">${esc(k)}</span>`);
@@ -4631,7 +4749,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.47.0',
+    version:     '8.48.0',
     category:    'fighter',
   });
 })();
