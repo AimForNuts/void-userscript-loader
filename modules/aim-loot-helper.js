@@ -242,6 +242,44 @@
     { name:"Loot",  mustHave:["dropRate"],  preferred:[],                        optional:["allStats"],   avoid:[] },
   ];
 
+  const SLOT_STAT_POOLS = {
+    // Weapons (primary = atk)
+    "sword":   new Set(["atk","critChance","critDamage","hp","def","atkSpeed","allStats"]),
+    "spear":   new Set(["atk","critChance","critDamage","hp","def","atkSpeed","allStats"]),
+    "bow":     new Set(["atk","critChance","critDamage","hp","atkSpeed","allStats"]),
+    "staff":   new Set(["atk","mana","healPower","cdr","hp","atkSpeed","allStats"]),
+    "harp":    new Set(["atk","mana","healPower","cdr","hp","atkSpeed","allStats"]),
+    "fan":     new Set(["atk","mana","critChance","critDamage","cdr","atkSpeed","allStats"]),
+    // Light armor
+    "helmet:light":    new Set(["def","mana","cdr","critChance","atkSpeed","manaRegen","allStats"]),
+    "shoulders:light": new Set(["def","cdr","critChance","atkSpeed","manaRegen","allStats"]),
+    "chest:light":     new Set(["def","mana","cdr","critChance","critDamage","atkSpeed","manaRegen","dropRate","allStats"]),
+    "hands:light":     new Set(["atk","critChance","critDamage","cdr","atkSpeed","manaRegen","allStats"]),
+    "legs:light":      new Set(["def","mana","cdr","critDamage","atkSpeed","manaRegen","allStats"]),
+    "boots:light":     new Set(["def","mana","cdr","atkSpeed","critChance","manaRegen","allStats"]),
+    "shield":          new Set(["def","mana","cdr","manaRegen","allStats"]),
+    // Heavy armor (Spear only)
+    "helmet:heavy":    new Set(["def","hp","healPower","manaRegen","allStats"]),
+    "shoulders:heavy": new Set(["def","hp","healPower","manaRegen","allStats"]),
+    "chest:heavy":     new Set(["def","hp","healPower","manaRegen","allStats"]),
+    "hands:heavy":     new Set(["def","hp","healPower","manaRegen","allStats"]),
+    "legs:heavy":      new Set(["def","hp","healPower","manaRegen","allStats"]),
+    "boots:heavy":     new Set(["def","hp","healPower","manaRegen","allStats"]),
+    // Accessories
+    "amulet": new Set(["mana","healPower","cdr","critChance","atkSpeed","dropRate","manaRegen","allStats"]),
+    "ring":   new Set(["critChance","critDamage","mana","healPower","cdr","hp","atkSpeed","dropRate","manaRegen","allStats"]),
+  };
+
+  function eligibleStatsForItem(item) {
+    const slot   = (item.slotType     ?? "").toLowerCase();
+    const sub    = (item.weaponSubType ?? "").toLowerCase();
+    const weight = (item.armorWeight  ?? "light").toLowerCase();
+    if (slot === "weapon")                    return SLOT_STAT_POOLS[sub]              ?? null;
+    if (slot === "amulet" || slot === "ring") return SLOT_STAT_POOLS[slot]             ?? null;
+    if (slot === "shield")                    return SLOT_STAT_POOLS["shield"]         ?? null;
+    return SLOT_STAT_POOLS[`${slot}:${weight}`] ?? null;
+  }
+
   const SCORE_CONFIG = {
     mustHaveMissingPenalty:          -100,
     mustHavePresentBonus:              25,
@@ -726,9 +764,9 @@
     marketCtxMwt: 1,
     teamSendStatus: "", teamSendBusy: false,
     salvageStatus: "", salvageBusy: false, salvageSelectedIds: new Set(), salvageExcludeSTier: false,
-    historySelectedPlayer: null,
     teamManage: false,
     pinnedItemId: null,
+    debugExpandedItems: new Set(),
   };
 
   /**************************************************************************
@@ -947,7 +985,8 @@
     const multiRollCount = Math.max(0, maxSlots - itemStatKeys.size);
     const priorityUps   = diffs.filter(d => d.isUp && activeFC.stats.has(d.stat)).length;
     const hasPriorityMR = multiRollCount > 0 && [...itemStatKeys].some(s => activeFC.stats.has(s));
-    const score = calcFilterScore(ttStats, eqBaseStats, activeFC, multiRollCount, itemStatKeys).finalScore;
+    const chatEligibleStats = eligibleStatsForItem({ slotType: slot, weaponSubType: typePart?.toLowerCase(), armorWeight });
+    const score = calcFilterScore(ttStats, eqBaseStats, activeFC, multiRollCount, itemStatKeys, chatEligibleStats).finalScore;
     let { rec, cat: chatCat } = applyQualityCap(
       recommendation(score, priorityUps, hasPriorityMR, activeFC),
       categoryOf(score, priorityUps, hasPriorityMR, activeFC),
@@ -1231,8 +1270,10 @@
    * LOOT LOGIC
    **************************************************************************/
 
-  function calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys) {
+  function calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys, eligibleStats = null) {
     const cfg = SCORE_CONFIG;
+
+    function isEligible(stat) { return eligibleStats == null || eligibleStats.has(stat); }
 
     function normDelta(stat) {
       const candVal = ownBaseStats[stat] ?? 0;
@@ -1249,6 +1290,7 @@
     const reasons = [];
 
     for (const stat of fc.preferredStats ?? []) {
+      if (!isEligible(stat)) { reasons.push({ stat, tier:"ineligible", contribution:0 }); continue; }
       const candVal = ownBaseStats[stat] ?? 0;
       if (candVal === 0) {
         mustHaveCoverageScore += cfg.mustHaveMissingPenalty;
@@ -1268,6 +1310,7 @@
     let preferredMissingCount = 0;
 
     for (const stat of fc.stats ?? []) {
+      if (!isEligible(stat)) { reasons.push({ stat, tier:"ineligible", contribution:0 }); continue; }
       const candVal = ownBaseStats[stat] ?? 0;
       if (candVal === 0) preferredMissingCount++;
       const delta = normDelta(stat);
@@ -1289,6 +1332,7 @@
     // Avoid — opportunity cost only if candidate actually has the avoided stat
     let avoidOpportunityCost = 0;
     for (const stat of fc.avoid ?? []) {
+      if (!isEligible(stat)) { reasons.push({ stat, tier:"ineligible", contribution:0 }); continue; }
       if (itemStatKeys.has(stat)) {
         const mult = mustHaveMissingCount > 0   ? cfg.avoidMultiplierMustHaveMissing
                    : preferredMissingCount > 0  ? cfg.avoidMultiplierPreferredMissing
@@ -1302,6 +1346,7 @@
     // Optional
     let optionalScore = 0;
     for (const stat of fc.optional ?? []) {
+      if (!isEligible(stat)) { reasons.push({ stat, tier:"ineligible", contribution:0 }); continue; }
       const delta = normDelta(stat);
       const power = delta * cfg.optionalPowerWeight;
       optionalScore += power;
@@ -1318,7 +1363,7 @@
     let neutralScore = 0;
     const neutralKeys = new Set([...Object.keys(ownBaseStats), ...Object.keys(eqBaseStats)]);
     for (const stat of neutralKeys) {
-      if (!allTracked.has(stat)) {
+      if (!allTracked.has(stat) && isEligible(stat)) {
         const delta = normDelta(stat);
         neutralScore += delta * cfg.neutralPowerWeight;
       }
@@ -1577,10 +1622,11 @@
       const r2 = equippedMap["Ring 2"] ?? null;
       if (r1 && r2) {
         const fc = state.filters.get(filterKeyOverride ?? state.activeFilterKey) ?? mkFC([]);
+        const ringEligibleStats = eligibleStatsForItem({ slotType, weaponSubType: item.type, armorWeight: item.armorWeight });
         const scoreVs = (eq) => {
           const eqS = {};
           for (const [k, v] of Object.entries(eq.stats)) { if (k !== "_qualities") eqS[normStatKey(k)] = v; }
-          return calcFilterScore(ownBaseStats, eqS, fc, 0, new Set(Object.keys(ownBaseStats))).finalScore;
+          return calcFilterScore(ownBaseStats, eqS, fc, 0, new Set(Object.keys(ownBaseStats)), ringEligibleStats).finalScore;
         };
         equippedItem = scoreVs(r1) >= scoreVs(r2) ? r1 : r2;
       } else {
@@ -1615,12 +1661,13 @@
     const itemStatKeys   = new Set(Object.keys(ownBaseStats));
 
     // Score + qualification data per filter
+    const eligibleStats = eligibleStatsForItem({ slotType, weaponSubType: item.type, armorWeight: item.armorWeight });
     const filterScores      = {};
     const filterBreakdowns  = {};
     const filterHasPriorityMR = {};
     const filterHasPrefMR     = {};
     for (const [key, fc] of state.filters) {
-      const bd = calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys);
+      const bd = calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys, eligibleStats);
       filterScores[key]         = bd.finalScore;
       filterBreakdowns[key]     = bd;
       filterHasPriorityMR[key]  = multiRollCount > 0 && [...itemStatKeys].some(s => fc.stats.has(s) || fc.preferredStats.has(s));
@@ -2109,6 +2156,21 @@
     .sg-hist-dn { color:#f87171; }
     .sg-hist-same { color:#64748b; }
 
+    .sg-debug-list { display:flex; flex-direction:column; gap:2px; padding:4px 6px; }
+    .sg-debug-item { border-radius:6px; overflow:hidden; border:1px solid rgba(255,255,255,.06); }
+    .sg-debug-header { display:flex; align-items:center; gap:6px; padding:5px 8px; cursor:pointer; background:#0c1526; }
+    .sg-debug-header:hover { background:#111e35; }
+    .sg-debug-toggle { color:#4b5563; font-size:10px; flex-shrink:0; }
+    .sg-debug-name { flex:1; font-size:11px; font-weight:600; color:#e8eefc; }
+    .sg-debug-slot { font-size:10px; }
+    .sg-debug-score { font-size:12px; flex-shrink:0; }
+    .sg-debug-body { background:#080f1c; padding:6px 8px; }
+    .sg-debug-table { width:100%; border-collapse:collapse; font-size:10px; }
+    .sg-debug-table th { color:#4b5563; font-weight:600; padding:2px 6px 4px; text-align:left; }
+    .sg-debug-table td { padding:2px 6px; vertical-align:middle; }
+    .sg-debug-table tr:hover td { background:rgba(255,255,255,.03); }
+    .sg-debug-summary { display:flex; flex-wrap:wrap; gap:6px; padding:6px 4px 2px; font-size:10px; color:#64748b; border-top:1px solid rgba(255,255,255,.05); margin-top:4px; }
+
     .sg-footer {
       text-align:center; font-size:9px; color:#1e293b;
       padding:5px 10px; border-top:1px solid rgba(255,255,255,.05);
@@ -2157,8 +2219,7 @@
         <button class="sg-tab"        data-tab="filters">⚙️ Filters</button>
         <button class="sg-tab"        data-tab="market">🏪 Market</button>
         <button class="sg-tab"        data-tab="team">👥 Team</button>
-        <button class="sg-tab"        data-tab="history">📜 History</button>
-        <button class="sg-tab"        data-tab="rating">⭐ Rating</button>
+        <button class="sg-tab"        data-tab="debug">🐛 Debug</button>
       </div>
       <div class="sg-body" id="aimSgBody"><div class="sg-hint">Waiting for data…</div></div>
     `;
@@ -2174,7 +2235,7 @@
           state.pinnedItemId = null;
         }
         fadeApplyBagHighlights();
-        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team" || state.activeTab === "history" || state.activeTab === "rating";
+        const isWide = state.activeTab === "gear" || state.activeTab === "market" || state.activeTab === "team" || state.activeTab === "debug";
         if (_moduleApp) {
           panelEl.style.width = isWide ? "480px" : "310px";
         } else {
@@ -2272,6 +2333,105 @@
       panel.style.top  = Math.max(0, ot+e.clientY-oy)+"px";
     });
     window.addEventListener("mouseup", () => { drag=false; });
+  }
+
+  /**************************************************************************
+   * RENDER — Debug Tab
+   **************************************************************************/
+
+  function renderDebug() {
+    const items = state.bagItems;
+    if (!items || !items.length) {
+      return `<div class="sg-hint">No bag items found.<br>Open your inventory first.</div>`;
+    }
+    const filterKey = state.activeFilterKey;
+    const fc = state.filters.get(filterKey);
+    if (!fc) return `<div class="sg-hint">No active filter.</div>`;
+
+    // Filter header chips
+    const chipSummary = () => {
+      const parts = [];
+      if (fc.preferredStats?.size) parts.push([...fc.preferredStats].map(s => `<span class="sg-pref-chip must-have">★ ${esc(STAT_DEFS.find(d=>d.key===s)?.label??s)}</span>`).join(""));
+      if (fc.stats?.size)          parts.push([...fc.stats].map(s => `<span class="sg-pref-chip preferred">♥ ${esc(STAT_DEFS.find(d=>d.key===s)?.label??s)}</span>`).join(""));
+      if (fc.optional?.size)       parts.push([...fc.optional].map(s => `<span class="sg-pref-chip optional">◎ ${esc(STAT_DEFS.find(d=>d.key===s)?.label??s)}</span>`).join(""));
+      if (fc.avoid?.size)          parts.push([...fc.avoid].map(s => `<span class="sg-pref-chip avoid">✗ ${esc(STAT_DEFS.find(d=>d.key===s)?.label??s)}</span>`).join(""));
+      return parts.join(" &nbsp; ");
+    };
+
+    const scored = items
+      .filter(item => item.filterBreakdowns?.[filterKey])
+      .sort((a, b) => (b.filterBreakdowns[filterKey].finalScore) - (a.filterBreakdowns[filterKey].finalScore));
+
+    if (!scored.length) return `<div class="sg-hint">No scored items found.</div>`;
+
+    const fmtVal = v => v == null || v === 0 ? "—" : (Number.isInteger(v) ? String(v) : v.toFixed(1));
+    const fmtPct = v => v == null ? "" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(0)}%`;
+    const fmtScore = v => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
+    const tierColor = { mustHave:"#facc15", preferred:"#4ade80", optional:"#60a5fa", avoid:"#f87171", neutral:"#64748b", ineligible:"#374151" };
+    const tierLabel = { mustHave:"★", preferred:"♥", optional:"◎", avoid:"✗", neutral:"·", ineligible:"—" };
+
+    let html = `<div style="padding:6px 10px 4px;">
+    <div style="font-size:10px;color:#64748b;margin-bottom:4px;">Active filter: <b style="color:#e8eefc">${esc(filterKey)}</b></div>
+    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:8px;">${chipSummary()}</div>
+  </div>
+  <div class="sg-debug-list">`;
+
+    for (const item of scored) {
+      const bd      = item.filterBreakdowns[filterKey];
+      const color   = rarityColor(item.rarity);
+      const rec     = item.rec ?? { label:"—", cls:"" };
+      const isOpen  = state.debugExpandedItems.has(item.id);
+      const slotLbl = item.slotType ?? "";
+
+      html += `<div class="sg-debug-item${isOpen?" open":""}" data-debug-id="${esc(String(item.id))}">
+      <div class="sg-debug-header" style="border-left:3px solid ${color};">
+        <span class="sg-debug-toggle">${isOpen?"▾":"▸"}</span>
+        <span class="sg-debug-name">${esc(item.name)}</span>
+        <span class="sg-debug-slot" style="color:#4b5563;">${esc(slotLbl)}</span>
+        <span class="sg-badge ${rec.cls}" style="font-size:9px;">${esc(rec.label)}</span>
+        <span class="sg-debug-score" style="color:${bd.finalScore>=0?"#4ade80":"#f87171"};font-weight:700;">${bd.finalScore.toFixed(1)}</span>
+      </div>`;
+
+      if (isOpen) {
+        html += `<div class="sg-debug-body">
+        <table class="sg-debug-table">
+          <thead><tr>
+            <th>Stat</th><th>Equipped</th><th>Item</th><th>Δ</th><th>Score</th>
+          </tr></thead><tbody>`;
+
+        for (const r of bd.reasons) {
+          const label = STAT_DEFS.find(d => d.key === r.stat)?.label ?? r.stat;
+          const col   = tierColor[r.tier] ?? "#64748b";
+          const icon  = tierLabel[r.tier] ?? "·";
+          const dimmed = r.tier === "ineligible";
+          html += `<tr style="${dimmed?"opacity:.4;":""}">
+          <td><span style="color:${col};font-size:10px;">${icon} ${esc(label)}</span></td>
+          <td style="color:#94a3b8;">${fmtVal(r.curVal)}</td>
+          <td style="color:#e8eefc;">${dimmed ? "<i>N/A</i>" : fmtVal(r.candVal)}</td>
+          <td style="color:#94a3b8;">${dimmed ? "<i>ineligible</i>" : (r.delta != null ? fmtPct(r.delta) : "")}</td>
+          <td style="color:${(r.contribution??0)>=0?"#4ade80":"#f87171"};font-weight:600;">${dimmed ? "" : fmtScore(r.contribution??0)}</td>
+        </tr>`;
+        }
+
+        html += `</tbody></table>
+        <div class="sg-debug-summary">
+          <span>cov <b>${bd.mustHaveCoverageScore.toFixed(1)}</b></span>
+          <span>pow <b>${bd.mustHavePowerScore.toFixed(1)}</b></span>
+          <span>pref <b>${bd.cappedPreferredScore.toFixed(1)}</b>${bd.rawPreferredScore !== bd.cappedPreferredScore ? ` <span style="color:#4b5563;">(raw ${bd.rawPreferredScore.toFixed(1)})</span>` : ""}</span>
+          ${bd.avoidOpportunityCost ? `<span>avoid <b style="color:#f87171;">${bd.avoidOpportunityCost.toFixed(1)}</b></span>` : ""}
+          ${bd.neutralScore ? `<span>neutral <b>${bd.neutralScore.toFixed(1)}</b></span>` : ""}
+          ${bd.optionalScore ? `<span>opt <b>${bd.optionalScore.toFixed(1)}</b></span>` : ""}
+          ${bd.multiRollBonus ? `<span>multi <b>${bd.multiRollBonus.toFixed(1)}</b></span>` : ""}
+          <span style="color:#e8eefc;font-weight:700;">= ${bd.finalScore.toFixed(1)}</span>
+        </div>
+      </div>`;
+      }
+
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+    return html;
   }
 
   /**************************************************************************
@@ -4027,257 +4187,11 @@
     return html;
   }
 
-  /**************************************************************************
-   * RENDER — History Tab
-   **************************************************************************/
-
   const STAT_LABELS = {
     atkPhys: "Atk (Phys)", atkSpeed: "Atk Speed", critChance: "Crit %",
     critDmg: "Crit Dmg %", hitChance: "Hit %", maxHpStat: "Max HP",
     def: "Defense", allStats: "All Stats", maxManaStat: "Max Mana", manaRegen: "Mana Regen",
   };
-
-  function renderHistory() {
-    const tracked = Object.values(trackedProfiles)
-      .filter(tp => tp.snapshots.length >= 1)
-      .sort((a, b) => (latestSnap(b)?.ts ?? 0) - (latestSnap(a)?.ts ?? 0));
-
-    if (!tracked.length) {
-      return `<div class="sg-hint">No tracked players yet.<br>Inspect someone to start.</div>`;
-    }
-
-    const selPid = state.historySelectedPlayer;
-    const selTp  = selPid ? trackedProfiles[selPid] : null;
-
-    const playerList = tracked.map(tp => {
-      const n = tp.snapshots.length;
-      return `<button class="sg-hist-player-btn${selPid === tp.playerId ? " active" : ""}" data-hist-pid="${esc(tp.playerId)}">
-        ${esc(tp.username)}
-        <span style="font-size:9px;color:#374151;float:right;">${n} snap${n>1?"s":""}</span>
-      </button>`;
-    }).join("");
-
-    const fmtDate = d => { const dt = new Date(d); return `${dt.getDate().toString().padStart(2,"0")}.${(dt.getMonth()+1).toString().padStart(2,"0")} ${dt.getHours().toString().padStart(2,"0")}:${dt.getMinutes().toString().padStart(2,"0")}`; };
-    const fmtN    = v => v == null ? "—" : (Number.isInteger(v) ? String(v) : v.toFixed(1));
-    const fmtRnd  = v => v == null ? "—" : Math.round(v).toLocaleString();
-
-    function metricDiffRow(label, pv, cv, fmt) {
-      if (pv == null && cv == null) return "";
-      const diff    = (pv != null && cv != null) ? cv - pv : null;
-      const pctStr  = (diff != null && pv && pv !== 0) ? ` ${diff >= 0 ? "+" : ""}${((diff / pv) * 100).toFixed(1)}%` : "";
-      const cls     = diff == null || Math.abs(diff) < 0.05 ? "sg-hist-same" : diff > 0 ? "sg-hist-up" : "sg-hist-dn";
-      const sign    = diff != null && diff > 0 ? "+" : "";
-      const diffStr = diff != null && Math.abs(diff) >= 0.05 ? ` (${sign}${fmt(Math.abs(diff))}${pctStr})` : "";
-      return `<div class="sg-hist-stat-row">
-        <span class="sg-hist-stat-lbl">${label}</span>
-        <span>
-          <span style="color:#64748b;">${pv != null ? fmt(pv) : "—"}</span>
-          <span style="color:#374151;margin:0 3px;">→</span>
-          <span class="${cls}">${cv != null ? fmt(cv) : "—"}${diffStr}</span>
-        </span>
-      </div>`;
-    }
-
-    function currentGearSection(snap) {
-      const slots = GEAR_SLOT_ORDER.filter(s => snap.equippedMap[s]);
-      if (!slots.length) return "";
-      const rows = slots.map(slot => {
-        const item    = snap.equippedMap[slot];
-        const rarity  = (item.rarity ?? "COMMON").toUpperCase();
-        const color   = RARITY_COLOR[rarity] ?? "#7A6E62";
-        const name    = item.name ?? item.type ?? "?";
-        const tier    = item.tier ? ` T${item.tier}` : "";
-        const forge   = item.forgeTier ? ` ${FORGE_TIER_SYMBOL[item.forgeTier] ?? ""}` : "";
-        return `<div class="sg-hist-stat-row">
-          <span class="sg-hist-stat-lbl" style="color:#64748b;">${slot}</span>
-          <span style="color:${color};font-size:10px;">${esc(name)}${esc(tier)}${esc(forge)}</span>
-        </div>`;
-      }).join("");
-      return `<div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
-        <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Current Gear</div>
-        ${rows}
-      </div>`;
-    }
-
-    function currentStatsSection(stats) {
-      const dps  = calcDPS(stats);
-      const ehp  = calcSurvivability(stats.maxHpStat, stats.def ?? 0);
-      const mana = stats.maxManaStat ?? null;
-      const rows = [
-        dps  != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">DPS</span><span style="color:#e8eefc;">${dps.toFixed(1)}</span></div>` : "",
-        ehp  != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">EHP</span><span style="color:#e8eefc;">${Math.round(ehp).toLocaleString()}</span></div>` : "",
-        mana != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">Mana</span><span style="color:#e8eefc;">${Math.round(mana).toLocaleString()}</span></div>` : "",
-        ...Object.entries(STAT_LABELS).map(([key, label]) => {
-          const v = stats[key] ?? null;
-          return v != null ? `<div class="sg-hist-stat-row"><span class="sg-hist-stat-lbl">${label}</span><span style="color:#94a3b8;">${fmtN(v)}</span></div>` : "";
-        }),
-      ].filter(Boolean).join("");
-      return rows ? `<div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
-        <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Current Stats</div>
-        ${rows}
-      </div>` : "";
-    }
-
-    let diffHtml = "";
-    if (selTp && selTp.snapshots.length >= 2) {
-      const prev = selTp.snapshots[selTp.snapshots.length - 2];
-      const curr = selTp.snapshots[selTp.snapshots.length - 1];
-
-      const prevStats = (prev.charStats && Object.values(prev.charStats).some(v => v != null))
-        ? prev.charStats : deriveCharStatsFromProfile({ equippedMap: prev.equippedMap, levelText: prev.levelText });
-      const currStats = (curr.charStats && Object.values(curr.charStats).some(v => v != null))
-        ? curr.charStats : deriveCharStatsFromProfile({ equippedMap: curr.equippedMap, levelText: curr.levelText });
-
-      const metricRows = [
-        metricDiffRow("DPS",  calcDPS(prevStats),                                         calcDPS(currStats),                                         v => v.toFixed(1)),
-        metricDiffRow("EHP",  calcSurvivability(prevStats.maxHpStat, prevStats.def ?? 0), calcSurvivability(currStats.maxHpStat, currStats.def ?? 0), v => Math.round(v).toLocaleString()),
-        metricDiffRow("Mana", prevStats.maxManaStat ?? null,                               currStats.maxManaStat ?? null,                               fmtRnd),
-      ].filter(Boolean).join("");
-
-      let statRows = "";
-      for (const [key, label] of Object.entries(STAT_LABELS)) {
-        const pv = prevStats[key] ?? null;
-        const cv = currStats[key] ?? null;
-        if (pv == null && cv == null) continue;
-        const diff = (cv ?? 0) - (pv ?? 0);
-        const cls  = diff > 0.05 ? "sg-hist-up" : diff < -0.05 ? "sg-hist-dn" : "sg-hist-same";
-        const sign = diff > 0.05 ? "+" : "";
-        statRows += `<div class="sg-hist-stat-row">
-          <span class="sg-hist-stat-lbl">${label}</span>
-          <span>
-            <span style="color:#64748b;">${fmtN(pv)}</span>
-            <span style="color:#374151;margin:0 3px;">→</span>
-            <span class="${cls}">${fmtN(cv)} ${diff !== 0 ? `(${sign}${fmtN(diff)})` : ""}</span>
-          </span>
-        </div>`;
-      }
-
-      const allSlots = new Set([...Object.keys(prev.equippedMap), ...Object.keys(curr.equippedMap)]);
-      let gearRows = ""; let anyGearChange = false;
-      for (const slot of allSlots) {
-        const pi = prev.equippedMap[slot];
-        const ci = curr.equippedMap[slot];
-        const pName = pi ? (pi.name ?? pi.type ?? "?") : "—";
-        const cName = ci ? (ci.name ?? ci.type ?? "?") : "—";
-        if (pName === cName) continue;
-        anyGearChange = true;
-        gearRows += `<div class="sg-hist-slot">
-          <span class="sg-hist-slot-name">${esc(slot)}</span>
-          <span style="color:#f87171;">${esc(pName)}</span>
-          <span style="color:#374151;">→</span>
-          <span style="color:#4ade80;">${esc(cName)}</span>
-        </div>`;
-      }
-
-      diffHtml = `
-        <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
-          <b style="font-size:12px;color:#e8eefc;">${esc(selTp.username)}</b>
-          <span style="font-size:9px;color:#4b5563;margin-left:6px;">${fmtDate(prev.ts)} → ${fmtDate(curr.ts)}</span>
-        </div>
-        ${metricRows ? `<div style="padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
-          <div style="font-size:10px;color:#f59e0b;margin-bottom:4px;">Combat Metrics</div>
-          ${metricRows}
-        </div>` : ""}
-        <div style="padding:6px 10px;">
-          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Stat Changes</div>
-          ${statRows || `<div style="color:#374151;font-size:10px;">No stat changes.</div>`}
-        </div>
-        <div style="padding:6px 10px;border-top:1px solid rgba(255,255,255,.05);">
-          <div style="font-size:10px;color:#93c5fd;margin-bottom:4px;">Gear Changes</div>
-          ${anyGearChange ? gearRows : `<div style="color:#374151;font-size:10px;">No gear changes.</div>`}
-        </div>
-        ${currentGearSection(curr)}`;
-    } else if (selTp && selTp.snapshots.length >= 1) {
-      const snap  = selTp.snapshots[selTp.snapshots.length - 1];
-      const stats = (snap.charStats && Object.values(snap.charStats).some(v => v != null))
-        ? snap.charStats : deriveCharStatsFromProfile({ equippedMap: snap.equippedMap, levelText: snap.levelText });
-      diffHtml = `
-        <div style="padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);">
-          <b style="font-size:12px;color:#e8eefc;">${esc(selTp.username)}</b>
-          <span style="font-size:9px;color:#4b5563;margin-left:6px;">${fmtDate(snap.ts)}</span>
-          <span style="font-size:9px;color:#374151;margin-left:4px;">(1 snapshot — inspect again to track changes)</span>
-        </div>
-        ${currentStatsSection(stats)}
-        ${currentGearSection(snap)}`;
-    } else {
-      diffHtml = `<div class="sg-hint">Select a player on the left<br>to view their history.</div>`;
-    }
-
-    return storageWarningBanner() + `<div style="display:flex;height:100%;min-height:200px;">
-      <div style="width:130px;flex-shrink:0;border-right:1px solid rgba(255,255,255,.05);overflow-y:auto;">${playerList}</div>
-      <div style="flex:1;overflow-y:auto;">${diffHtml}</div>
-    </div>`;
-  }
-
-  /**************************************************************************
-   * RENDER — Rating Tab
-   **************************************************************************/
-
-  function renderRating() {
-    const items = state.bagItems;
-    if (!items || !items.length) {
-      return `<div class="sg-hint">No bag items found.<br>Open your inventory first.</div>`;
-    }
-
-    const graded = items
-      .map(item => ({ item, g: calcItemIntrinsicGrade(item) }))
-      .filter(x => x.g)
-      .sort((a, b) => b.g.score - a.g.score);
-
-    if (!graded.length) {
-      return `<div class="sg-hint">No gradeable items found.<br>(Items need roll quality data.)</div>`;
-    }
-
-    const GRADE_ORDER = ["S","A","B","C"];
-    const sections = GRADE_ORDER.map(grade => {
-      const group = graded.filter(x => x.g.grade === grade);
-      if (!group.length) return "";
-      const cls = `sg-ir-${grade.toLowerCase()}`;
-      const rows = group.map(({ item, g }) => {
-        const color  = rarityColor(item.rarity);
-        const forgeStr = item.forgeLevel ? ` +${item.forgeLevel}` : "";
-        const archColor = g.archetype === "DPS" ? "#f97316" : g.archetype === "Tank" ? "#60a5fa" : g.archetype === "Mana" ? "#818cf8" : "#facc15";
-        const doubleTriple = g.coreCount >= 3 ? ` <span style="color:#c084fc;font-size:9px;">Triple</span>` : g.coreCount >= 2 ? ` <span style="color:#a78bfa;font-size:9px;">Double</span>` : "";
-        const allStatsNote = g.allStatsCount ? ` <span style="color:#94a3b8;font-size:9px;">+AllStats</span>` : "";
-        const qualColor = g.rollScore >= 85 ? "#4ade80" : g.rollScore >= 65 ? "#fde68a" : "#f87171";
-        const cohColor  = g.coherenceScore >= 80 ? "#4ade80" : g.coherenceScore >= 55 ? "#fde68a" : "#94a3b8";
-        return `<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid rgba(255,255,255,.04);border-left:3px solid ${color};">
-          <span class="sg-ir-badge ${cls}" style="flex-shrink:0;">${grade}</span>
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:11px;font-weight:600;color:${color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.name)}${esc(forgeStr)}</div>
-            <div style="font-size:9px;color:#4b5563;">${esc(item.slotType)} · ${esc(item.rarity)}</div>
-          </div>
-          <div style="text-align:right;font-size:10px;flex-shrink:0;">
-            <div style="color:${archColor};">${g.archetype}${doubleTriple}${allStatsNote}</div>
-            <div><span style="color:${qualColor};" title="Average roll quality">Roll ${g.rollScore.toFixed(0)}%</span> <span style="color:${cohColor};" title="Archetype coherence">Coh ${g.coherenceScore.toFixed(0)}%</span></div>
-            <div style="color:#94a3b8;font-size:9px;">Score ${g.score.toFixed(0)}</div>
-          </div>
-        </div>`;
-      }).join("");
-      return `<div style="padding:4px 10px 2px;background:#080f1c;font-size:10px;font-weight:700;" class="${cls}">${grade} Grade (${group.length})</div>${rows}`;
-    }).join("");
-
-    const GRADE_HL_STYLE = { S:"color:#facc15;border-color:#92400e;", A:"color:#4ade80;border-color:#14532d;", B:"color:#60a5fa;border-color:#1e3a5f;", C:"color:#94a3b8;border-color:#374151;" };
-    const allActive = ["S","A","B","C"].every(g => state.highlightGrades.has(g));
-    const hlToolbar = `<div class="sg-hl-toolbar">
-      <span class="sg-hl-label">Highlight:</span>
-      <button class="sg-mode-btn${allActive?" active":""}" id="aimSgHlGradeAll"
-        style="${allActive?"color:#e8eefc;border-color:#3b82f6;":""}"
-        title="Toggle all grade highlights">All</button>
-      ${["S","A","B","C"].map(grade => {
-        const active = state.highlightGrades.has(grade);
-        const count  = graded.filter(x => x.g.grade === grade).length;
-        return `<button class="sg-mode-btn${active?" active":""}" data-hlgrade="${grade}"
-          style="${active ? GRADE_HL_STYLE[grade] : ""}">${grade} <span style="opacity:.6;">${count}</span></button>`;
-      }).join("")}
-    </div>`;
-
-    const legend = `<div style="padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.06);font-size:9px;color:#4b5563;">
-      Score = Roll%×0.5 + Coherence%×0.4 + Double/Triple bonus · S≥85 · A≥70 · B≥55 · C&lt;55
-    </div>`;
-
-    return hlToolbar + legend + sections;
-  }
 
   /**************************************************************************
    * INSPECT MODAL — Auto-track badge
@@ -4354,8 +4268,7 @@
     else if (state.activeTab==="filters") body.innerHTML = renderFilters();
     else if (state.activeTab==="market")  body.innerHTML = renderMarket();
     else if (state.activeTab==="team")    body.innerHTML = renderTeam();
-    else if (state.activeTab==="history") body.innerHTML = renderHistory();
-    else if (state.activeTab==="rating")  body.innerHTML = renderRating();
+    else if (state.activeTab==="debug")   body.innerHTML = renderDebug();
     else                                  body.innerHTML = renderStats();
 
     if (state.activeTab==="filters") {
@@ -4663,28 +4576,13 @@
       });
     }
 
-    if (state.activeTab==="history") {
-      body.querySelectorAll(".sg-hist-player-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
-          state.historySelectedPlayer = btn.dataset.histPid ?? null;
+    if (state.activeTab === "debug") {
+      body.querySelectorAll("[data-debug-id]").forEach(row => {
+        row.querySelector(".sg-debug-header")?.addEventListener("click", () => {
+          const id = row.dataset.debugId;
+          if (state.debugExpandedItems.has(id)) state.debugExpandedItems.delete(id);
+          else state.debugExpandedItems.add(id);
           render();
-        });
-      });
-    }
-
-    if (state.activeTab==="rating") {
-      body.querySelector("#aimSgHlGradeAll")?.addEventListener("click", () => {
-        const all = ["S","A","B","C"];
-        if (all.every(g => state.highlightGrades.has(g))) state.highlightGrades.clear();
-        else all.forEach(g => state.highlightGrades.add(g));
-        applyBagHighlights(); render();
-      });
-      body.querySelectorAll("[data-hlgrade]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const grade = btn.dataset.hlgrade;
-          if (state.highlightGrades.has(grade)) state.highlightGrades.delete(grade);
-          else state.highlightGrades.add(grade);
-          applyBagHighlights(); render();
         });
       });
     }
@@ -4749,7 +4647,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.48.0',
+    version:     '8.49.0',
     category:    'fighter',
   });
 })();
