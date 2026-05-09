@@ -1734,7 +1734,7 @@
       }
     }
 
-    // Class usability restriction — unusable item types are capped at Neutral regardless
+    // Class usability restriction — unusable item types are capped at Good regardless
     let classRestricted = false;
     const eqWeapon = equippedMap["Weapon"];
     if (eqWeapon) {
