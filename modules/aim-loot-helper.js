@@ -234,20 +234,20 @@
     "MANAREGEN":   "manaRegen",
   };
 
-  const FILTER_PRESETS = {
-    "🏹 Bow":   ["atk","atkSpeed","critChance","critDmg","allStats"],
-    "⚔️ Sword": ["atk","atkSpeed","critChance","critDmg","allStats"],
-    "🛡 Tank":  ["def","hp","healPower","manaRegen","allStats"],
-    "🔮 Mage":  ["mana","cdr","healPower","manaRegen","atkSpeed","allStats"],
-    "🎲 Loot":  ["dropRate","allStats"],
-  };
+  const DEFAULT_FILTERS = [
+    { name:"Bow",   mustHave:["atk"],       preferred:["atkSpeed","critChance"], optional:["allStats"],   avoid:["def","healPower"] },
+    { name:"Harp",  mustHave:["atk"],       preferred:["cdr","allStats"],        optional:["critChance"], avoid:["def"] },
+    { name:"Spear", mustHave:["def"],       preferred:["manaRegen"],             optional:[],             avoid:["healPower"] },
+    { name:"Staff", mustHave:["cdr"],       preferred:["critChance","manaRegen"],optional:[],             avoid:["def","healPower"] },
+    { name:"Loot",  mustHave:["dropRate"],  preferred:[],                        optional:["allStats"],   avoid:[] },
+  ];
 
   /**************************************************************************
    * FILTER STORAGE
    **************************************************************************/
 
-  function mkFC(stats, enabled=true, multiBonus={}, preferredStats=[], mode="defensive") {
-    return { stats: new Set(stats), enabled, multiBonus, preferredStats: new Set(preferredStats), mode };
+  function mkFC(stats, enabled=true, multiBonus={}, preferredStats=[], mode="defensive", optional=[], avoid=[]) {
+    return { stats: new Set(stats), enabled, multiBonus, preferredStats: new Set(preferredStats), mode, optional: new Set(optional), avoid: new Set(avoid) };
   }
 
   function loadFilters() {
@@ -260,17 +260,17 @@
             // migrate old format
             map.set(k, mkFC(v));
           } else if (v && typeof v === "object") {
-            map.set(k, mkFC(v.stats ?? [], v.enabled !== false, v.multiBonus ?? {}, v.preferredStats ?? [], v.mode ?? "defensive"));
+            map.set(k, mkFC(v.stats ?? [], v.enabled !== false, v.multiBonus ?? {}, v.preferredStats ?? [], v.mode ?? "defensive", v.optional ?? [], v.avoid ?? []));
           }
         }
         if (map.size > 0) return map;
       }
     } catch {}
     const map = new Map();
-    let firstPreset = true;
-    for (const [name, keys] of Object.entries(FILTER_PRESETS)) {
-      map.set(name, mkFC(keys, firstPreset));  // only first preset enabled for new users
-      firstPreset = false;
+    let firstFilter = true;
+    for (const f of DEFAULT_FILTERS) {
+      map.set(f.name, mkFC(f.preferred, firstFilter, {}, f.mustHave, "defensive", f.optional, f.avoid));
+      firstFilter = false;
     }
     return map;
   }
@@ -278,7 +278,7 @@
   function saveFilters() {
     const out = {};
     for (const [k, fc] of state.filters) {
-      out[k] = { stats:[...fc.stats], enabled:fc.enabled, multiBonus:fc.multiBonus, preferredStats:[...fc.preferredStats], mode: fc.mode ?? "defensive" };
+      out[k] = { stats:[...fc.stats], enabled:fc.enabled, multiBonus:fc.multiBonus, preferredStats:[...fc.preferredStats], mode: fc.mode ?? "defensive", optional:[...(fc.optional ?? [])], avoid:[...(fc.avoid ?? [])] };
     }
     localStorage.setItem("aim_sgFilters", JSON.stringify(out));
   }
@@ -757,6 +757,15 @@
   function rarityColor(r) { return RARITY_COLOR[String(r).toUpperCase()] ?? "#7A6E62"; }
 
   function normStatKey(k) { return STAT_KEY_MAP[k] ?? k; }
+
+  function statChipInfo(stat, fc) {
+    if (fc.preferredStats?.has(stat)) return { cls:"sg-pref-chip must-have",  prefix:"★ " };
+    if (fc.stats?.has(stat))          return { cls:"sg-pref-chip preferred",  prefix:"♥ " };
+    if (fc.optional?.has(stat))       return { cls:"sg-pref-chip optional",   prefix:"◎ " };
+    if (fc.avoid?.has(stat))          return { cls:"sg-pref-chip avoid",      prefix:"✗ " };
+    return                                   { cls:"sg-pref-chip",             prefix:""  };
+  }
+
   function normForge(ft)  { return FORGE_TIER_SYMBOL[ft] ?? ""; }
 
   function calcMedian(vals) {
@@ -1925,8 +1934,10 @@
       border-radius:5px; padding:3px 8px;
       font:inherit; font-size:11px; cursor:pointer;
     }
-    .sg-pref-chip.active { color:#93c5fd; border-color:rgba(59,130,246,.5); background:rgba(59,130,246,.12); }
-    .sg-pref-chip.preferred { color:#fbbf24; border-color:rgba(251,191,36,.5); background:rgba(251,191,36,.12); }
+    .sg-pref-chip.must-have { color:#facc15; border-color:rgba(250,204,21,.55); background:rgba(250,204,21,.10); }
+    .sg-pref-chip.preferred { color:#4ade80; border-color:rgba(74,222,128,.5);  background:rgba(74,222,128,.10); }
+    .sg-pref-chip.optional  { color:#60a5fa; border-color:rgba(96,165,250,.5);  background:rgba(96,165,250,.10); }
+    .sg-pref-chip.avoid     { color:#f87171; border-color:rgba(239,68,68,.5);   background:rgba(239,68,68,.10);  }
     .sg-diff.pref-star { border-color:rgba(251,191,36,.55); }
     .sg-add-btn {
       width:100%; background:#0c1526; color:#4b5563;
@@ -1934,7 +1945,6 @@
       padding:6px; font:inherit; font-size:11px; cursor:pointer; margin-top:4px;
     }
     .sg-add-btn:hover { color:#94a3b8; border-color:rgba(255,255,255,.2); }
-    .sg-preset-row { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:4px; }
 
     .sg-hint { color:#4b5563; font-size:11px; text-align:center; padding:14px 10px; }
     .c-green{color:#86efac;} .c-blue{color:#93c5fd;} .c-gold{color:#fde68a;}
@@ -2322,9 +2332,10 @@
           <b>What is a filter?</b> A filter scores every bag item by comparing its base stats to your currently equipped item in the same slot. The active filter (blue dot) drives all item labels and highlights.<br><br>
           <b>Stat tiers — per changed stat:</b>
           <table>
-            <tr><td>★ Preferred</td><td>+4 / −4 per stat</td></tr>
-            <tr><td>♥ Liked</td><td>+2 / −2 per stat</td></tr>
+            <tr><td>★ Must have</td><td>+4 / −4 per stat</td></tr>
+            <tr><td>♥ Preferred</td><td>+2 / −2 per stat</td></tr>
             <tr><td>(untracked)</td><td>+0.5 / −0.5 per stat</td></tr>
+            <tr><td>◎ Optional / ✗ Avoid</td><td>coming soon — currently unscored</td></tr>
           </table>
           <b>Result labels</b> (Top/Interesting also require ≥ 2 tracked stats improved, OR a tracked stat was multi-rolled):
           <table>
@@ -2343,13 +2354,19 @@
     for (const [key, fc] of state.filters) {
       const isActive  = key === state.activeFilterKey;
       const isEditing = fe?.key === key;
+      const _scParts = [];
+      if (fc.preferredStats.size) _scParts.push(`${fc.preferredStats.size} must`);
+      if (fc.stats.size)          _scParts.push(`${fc.stats.size} pref`);
+      if (fc.optional?.size)      _scParts.push(`${fc.optional.size} opt`);
+      if (fc.avoid?.size)         _scParts.push(`${fc.avoid.size} avoid`);
+      const _scText = _scParts.length ? _scParts.join(" · ") : "0 stats";
       html += `<div class="sg-filter-row${isActive?" active":""}${fc.enabled?"":" disabled"}" data-fkey="${esc(key)}" title="${isActive?"Active filter — click another row to switch":"Click to set as active filter"}">
         <div class="sg-filter-dot"></div>
         <span class="sg-filter-name">${esc(key)}</span>
-        <span class="sg-filter-statcount">${fc.stats.size + fc.preferredStats.size} stats${fc.preferredStats.size ? ` · ★${fc.preferredStats.size}` : ""}</span>
+        <span class="sg-filter-statcount">${_scText}</span>
         <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter (items won't be scored by this filter)":"Enable filter"}">${fc.enabled?"●":"○"}</button>
         <button class="sg-icon-btn sg-mode-btn ${fc.mode==="aggressive"?"aggressive":"defensive"}" data-fmode="${esc(key)}" title="${fc.mode==="aggressive"?"🗡 Aggressive mode — DPS change adjusts score: >2%→+2, >5%→+3, <-2%→-2, <-5%→-3 (click to switch to 🛡 Defensive)":"🛡 Defensive mode — EHP change adjusts score: >2%→+2, >5%→+3, <-2%→-2, <-5%→-3 (click to switch to 🗡 Aggressive)"}">${fc.mode==="aggressive"?"🗡":"🛡"}</button>
-        <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: choose which stats are Liked (♥ ±2) or Preferred (★ ±4)">✏</button>
+        <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: set Must have (★ ±4), Preferred (♥ ±2), Optional (◎), or Avoid (✗) per stat">✏</button>
         ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}" title="Delete this filter">✗</button>`:""}
       </div>`;
       if (isEditing) {
@@ -2359,17 +2376,14 @@
             <button class="sg-btn" id="aimSgFeSave">Save</button>
             <button class="sg-btn" id="aimSgFeCancel">✗</button>
           </div>
-          <div style="font-size:10px;color:#64748b;margin:2px 0 4px;">Click to cycle: off → ♥ Liked (score ±2) → ★ Preferred (score ±4) → off · ★ on a double-rolled stat = always Interesting</div>
+          <div style="font-size:10px;color:#64748b;margin:2px 0 4px;">Click to cycle: Neutral → ★ Must have (±4) → ♥ Preferred (±2) → ◎ Optional → ✗ Avoid → Neutral</div>
           <div class="sg-pref-grid">`;
         for (const def of STAT_DEFS) {
-          const isPref  = fe.preferredStats.has(def.key);
-          const isLiked = fe.stats.has(def.key);
-          const cls     = isPref ? "sg-pref-chip preferred" : isLiked ? "sg-pref-chip active" : "sg-pref-chip";
-          const lbl     = isPref ? `★ ${def.label}` : isLiked ? `♥ ${def.label}` : def.label;
-          html += `<button class="${cls}" data-estat="${esc(def.key)}" title="${isPref?`★ Preferred — scores ±4 per change`:isLiked?`♥ Liked — scores ±2 per change`:`Click to mark as Liked (♥)`}">${esc(lbl)}</button>`;
+          const { cls, prefix } = statChipInfo(def.key, fe);
+          html += `<button class="${cls}" data-estat="${esc(def.key)}">${esc(prefix + def.label)}</button>`;
         }
         html += `</div>
-          <div style="font-size:10px;color:#64748b;margin:8px 0 4px;">Multi-roll bonus — adds flat score when a multi-rolled item has this stat (click to cycle +0 → +1 → +2 → +3):</div>
+          <div style="font-size:10px;color:#64748b;margin:8px 0 4px;">Items with the corresponding multi roll on ALL stats selected above will be highly bumped</div>
           <div class="sg-mb-grid">`;
         for (const def of STAT_DEFS) {
           const val = fe.multiBonus[def.key] ?? 0;
@@ -2384,25 +2398,14 @@
     </div>`;
 
     if (!fe) {
-      html += `<div class="sg-sec">
-        <div class="sg-lbl">Init from Preset</div>
-        <div class="sg-preset-row">`;
-      for (const [name, keys] of Object.entries(FILTER_PRESETS)) {
-        html += `<button class="sg-btn" data-preset="${esc(name)}" title="Create a new filter from the ${name} preset&#10;Stats: ${keys.join(', ')}">${esc(name)}</button>`;
-      }
-      html += `</div></div>`;
-
       const activeFC = state.filters.get(state.activeFilterKey) ?? mkFC([]);
       html += `<div class="sg-sec">
         <div class="sg-lbl">Stats — ${esc(state.activeFilterKey)}</div>
-        <div style="font-size:10px;color:#4b5563;margin-bottom:4px;">Click to cycle: off → ♥ Liked (score ±2) → ★ Preferred (score ±4) → off · ★ on a double-rolled stat = always Interesting</div>
+        <div style="font-size:10px;color:#4b5563;margin-bottom:4px;">Click to cycle: Neutral → ★ Must have (±4) → ♥ Preferred (±2) → ◎ Optional → ✗ Avoid → Neutral</div>
         <div class="sg-pref-grid">`;
       for (const def of STAT_DEFS) {
-        const isPref  = activeFC.preferredStats.has(def.key);
-        const isLiked = activeFC.stats.has(def.key);
-        const cls     = isPref ? "sg-pref-chip preferred" : isLiked ? "sg-pref-chip active" : "sg-pref-chip";
-        const lbl     = isPref ? `★ ${def.label}` : isLiked ? `♥ ${def.label}` : def.label;
-        html += `<button class="${cls}" data-qstat="${esc(def.key)}" title="${isPref?`★ Preferred — scores ±4 per change`:isLiked?`♥ Liked — scores ±2 per change`:`Click to mark as Liked (♥)`}">${esc(lbl)}</button>`;
+        const { cls, prefix } = statChipInfo(def.key, activeFC);
+        html += `<button class="${cls}" data-qstat="${esc(def.key)}">${esc(prefix + def.label)}</button>`;
       }
       html += `</div></div>`;
     }
@@ -4332,7 +4335,7 @@
           e.stopPropagation();
           const key = btn.dataset.edit;
           const fc  = state.filters.get(key);
-          state.filterEdit = { key, name:key, stats:new Set(fc?.stats), preferredStats:new Set(fc?.preferredStats), multiBonus:{...fc?.multiBonus} };
+          state.filterEdit = { key, name:key, stats:new Set(fc?.stats), preferredStats:new Set(fc?.preferredStats), multiBonus:{...fc?.multiBonus}, optional:new Set(fc?.optional ?? []), avoid:new Set(fc?.avoid ?? []) };
           render();
         });
       });
@@ -4353,7 +4356,7 @@
         const newName = (document.getElementById("aimSgFeName")?.value||fe.key).trim();
         const oldFC   = state.filters.get(fe.key);
         if (newName!==fe.key) state.filters.delete(fe.key);
-        state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus, [...(fe.preferredStats ?? [])], oldFC?.mode ?? "defensive"));
+        state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus, [...(fe.preferredStats ?? [])], oldFC?.mode ?? "defensive", [...(fe.optional ?? [])], [...(fe.avoid ?? [])]));
         if (state.activeFilterKey===fe.key) {
           state.activeFilterKey = newName;
           localStorage.setItem("aim_sgActiveFilter", newName);
@@ -4369,13 +4372,11 @@
           if (nameEl && state.filterEdit) state.filterEdit.name = nameEl.value;
           const stat = btn.dataset.estat; if (!state.filterEdit) return;
           const fe = state.filterEdit;
-          if (fe.preferredStats.has(stat)) {
-            fe.preferredStats.delete(stat); fe.stats.delete(stat); // preferred → off
-          } else if (fe.stats.has(stat)) {
-            fe.stats.delete(stat); fe.preferredStats.add(stat);    // liked → preferred
-          } else {
-            fe.stats.add(stat);                                     // off → liked
-          }
+          if (fe.avoid.has(stat))               { fe.avoid.delete(stat); }
+          else if (fe.optional.has(stat))       { fe.optional.delete(stat); fe.avoid.add(stat); }
+          else if (fe.stats.has(stat))          { fe.stats.delete(stat); fe.optional.add(stat); }
+          else if (fe.preferredStats.has(stat)) { fe.preferredStats.delete(stat); fe.stats.add(stat); }
+          else                                  { fe.preferredStats.add(stat); }
           render();
         });
       });
@@ -4383,13 +4384,11 @@
         btn.addEventListener("click", () => {
           const fc = state.filters.get(state.activeFilterKey); if (!fc) return;
           const stat = btn.dataset.qstat;
-          if (fc.preferredStats.has(stat)) {
-            fc.preferredStats.delete(stat); fc.stats.delete(stat); // preferred → off
-          } else if (fc.stats.has(stat)) {
-            fc.stats.delete(stat); fc.preferredStats.add(stat);    // liked → preferred
-          } else {
-            fc.stats.add(stat);                                     // off → liked
-          }
+          if (fc.avoid.has(stat))               { fc.avoid.delete(stat); }
+          else if (fc.optional.has(stat))       { fc.optional.delete(stat); fc.avoid.add(stat); }
+          else if (fc.stats.has(stat))          { fc.stats.delete(stat); fc.optional.add(stat); }
+          else if (fc.preferredStats.has(stat)) { fc.preferredStats.delete(stat); fc.stats.add(stat); }
+          else                                  { fc.preferredStats.add(stat); }
           saveFilters(); render();
         });
       });
@@ -4408,16 +4407,8 @@
       document.getElementById("aimSgFeAdd")?.addEventListener("click", () => {
         const name = `Filter ${state.filters.size+1}`;
         state.filters.set(name, mkFC([]));
-        state.filterEdit = { key:name, name, stats:new Set(), preferredStats:new Set(), multiBonus:{} };
+        state.filterEdit = { key:name, name, stats:new Set(), preferredStats:new Set(), multiBonus:{}, optional:new Set(), avoid:new Set() };
         saveFilters(); render();
-      });
-      body.querySelectorAll("[data-preset]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const fc = state.filters.get(state.activeFilterKey); if (!fc) return;
-          const keys = FILTER_PRESETS[btn.dataset.preset] ?? [];
-          fc.stats.clear(); keys.forEach(k=>fc.stats.add(k));
-          saveFilters(); render();
-        });
       });
     }
 
@@ -4712,7 +4703,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.45.5',
+    version:     '8.46.0',
     category:    'fighter',
   });
 })();
