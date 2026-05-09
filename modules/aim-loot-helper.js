@@ -117,6 +117,10 @@
     atkSpeed:   { min:3.0, max:4.0, step:0.1 },
     allStats:   { min:1.5, max:2.0, step:0.1 },
     manaRegen:  { min:4,   max:5,   step:1   },
+    goldFind:   { min:8,   max:10,  step:1   },
+    hpOnKill:   { min:4,   max:6,   step:1   },
+    manaOnKill: { min:3,   max:5,   step:1   },
+    execute:    { min:5,   max:7,   step:1   },
   };
 
   const ZONE_TIERS = {
@@ -210,6 +214,10 @@
     { key:"healPower",  label:"Heal Power" },
     { key:"dropRate",   label:"Drop Rate"  },
     { key:"allStats",   label:"All Stats"  },
+    { key:"goldFind",   label:"Gold"       },
+    { key:"hpOnKill",   label:"HP/k"       },
+    { key:"manaOnKill", label:"Mana/k"     },
+    { key:"execute",    label:"Exec."      },
   ];
 
   // Maps uppercase tooltip stat labels → internal stat keys
@@ -232,6 +240,16 @@
     "CRIT DMG":    "critDmg",
     "MANA REGEN":  "manaRegen",
     "MANAREGEN":   "manaRegen",
+    "GOLD FIND":   "goldFind",
+    "GOLDFIND":    "goldFind",
+    "HP ON KILL":  "hpOnKill",
+    "HPONKILL":    "hpOnKill",
+    "LIFE ON KILL":"hpOnKill",
+    "MANA ON KILL":"manaOnKill",
+    "MAONKILL":    "manaOnKill",
+    "EXECUTE":     "execute",
+    "EXEC":        "execute",
+    "EXECUTE DMG": "execute",
   };
 
   const DEFAULT_FILTERS = [
@@ -244,30 +262,30 @@
 
   const SLOT_STAT_POOLS = {
     // Weapons (primary = atk)
-    "sword":   new Set(["atk","critChance","critDamage","hp","def","atkSpeed","allStats"]),
-    "spear":   new Set(["atk","critChance","critDamage","hp","def","atkSpeed","allStats"]),
-    "bow":     new Set(["atk","critChance","critDamage","hp","atkSpeed","allStats"]),
-    "staff":   new Set(["atk","mana","healPower","cdr","hp","atkSpeed","allStats"]),
-    "harp":    new Set(["atk","mana","healPower","cdr","hp","atkSpeed","allStats"]),
-    "fan":     new Set(["atk","mana","critChance","critDamage","cdr","atkSpeed","allStats"]),
+    "sword":   new Set(["atk","critChance","critDmg","hp","def","atkSpeed","allStats","hpOnKill","manaOnKill","execute"]),
+    "spear":   new Set(["atk","critChance","critDmg","hp","def","atkSpeed","allStats","hpOnKill","manaOnKill","execute"]),
+    "bow":     new Set(["atk","critChance","critDmg","hp","atkSpeed","allStats","hpOnKill","manaOnKill","execute"]),
+    "staff":   new Set(["atk","mana","healPower","cdr","hp","atkSpeed","allStats","hpOnKill","manaOnKill","execute"]),
+    "harp":    new Set(["atk","mana","healPower","cdr","hp","atkSpeed","allStats","hpOnKill","manaOnKill","execute"]),
+    "fan":     new Set(["atk","mana","critChance","critDmg","cdr","atkSpeed","allStats","hpOnKill","manaOnKill","execute"]),
     // Light armor
-    "helmet:light":    new Set(["def","mana","cdr","critChance","atkSpeed","manaRegen","allStats"]),
-    "shoulders:light": new Set(["def","cdr","critChance","atkSpeed","manaRegen","allStats"]),
-    "chest:light":     new Set(["def","mana","cdr","critChance","critDamage","atkSpeed","manaRegen","dropRate","allStats"]),
-    "hands:light":     new Set(["atk","critChance","critDamage","cdr","atkSpeed","manaRegen","allStats"]),
-    "legs:light":      new Set(["def","mana","cdr","critDamage","atkSpeed","manaRegen","allStats"]),
-    "boots:light":     new Set(["def","mana","cdr","atkSpeed","critChance","manaRegen","allStats"]),
+    "helmet:light":    new Set(["def","mana","cdr","critChance","atkSpeed","manaRegen","allStats","hpOnKill","manaOnKill"]),
+    "shoulders:light": new Set(["def","cdr","critChance","atkSpeed","manaRegen","allStats","hpOnKill","execute"]),
+    "chest:light":     new Set(["def","mana","cdr","critChance","critDmg","atkSpeed","manaRegen","dropRate","allStats","hpOnKill"]),
+    "hands:light":     new Set(["atk","critChance","critDmg","cdr","atkSpeed","manaRegen","allStats","hpOnKill","goldFind","execute"]),
+    "legs:light":      new Set(["def","mana","cdr","critDmg","atkSpeed","manaRegen","allStats","hpOnKill","manaOnKill"]),
+    "boots:light":     new Set(["def","mana","cdr","atkSpeed","critChance","manaRegen","allStats","hpOnKill","goldFind"]),
     "shield":          new Set(["def","mana","cdr","manaRegen","allStats"]),
     // Heavy armor (Spear only)
-    "helmet:heavy":    new Set(["def","hp","healPower","manaRegen","allStats"]),
-    "shoulders:heavy": new Set(["def","hp","healPower","manaRegen","allStats"]),
-    "chest:heavy":     new Set(["def","hp","healPower","manaRegen","allStats"]),
-    "hands:heavy":     new Set(["def","hp","healPower","manaRegen","allStats"]),
-    "legs:heavy":      new Set(["def","hp","healPower","manaRegen","allStats"]),
-    "boots:heavy":     new Set(["def","hp","healPower","manaRegen","allStats"]),
+    "helmet:heavy":    new Set(["def","hp","healPower","manaRegen","allStats","hpOnKill","manaOnKill"]),
+    "shoulders:heavy": new Set(["def","hp","healPower","manaRegen","allStats","hpOnKill","execute"]),
+    "chest:heavy":     new Set(["def","hp","healPower","manaRegen","allStats","hpOnKill"]),
+    "hands:heavy":     new Set(["def","hp","healPower","manaRegen","allStats","hpOnKill","goldFind","execute"]),
+    "legs:heavy":      new Set(["def","hp","healPower","manaRegen","allStats","hpOnKill","manaOnKill"]),
+    "boots:heavy":     new Set(["def","hp","healPower","manaRegen","allStats","hpOnKill","goldFind"]),
     // Accessories
-    "amulet": new Set(["mana","healPower","cdr","critChance","atkSpeed","dropRate","manaRegen","allStats"]),
-    "ring":   new Set(["critChance","critDamage","mana","healPower","cdr","hp","atkSpeed","dropRate","manaRegen","allStats"]),
+    "amulet": new Set(["mana","healPower","cdr","critChance","atkSpeed","dropRate","manaRegen","allStats","goldFind","hpOnKill","manaOnKill","execute"]),
+    "ring":   new Set(["critChance","critDmg","mana","healPower","cdr","hp","atkSpeed","dropRate","manaRegen","allStats","goldFind","hpOnKill","manaOnKill","execute"]),
   };
 
   function eligibleStatsForItem(item) {
@@ -2060,7 +2078,6 @@
     .sg-filter-dot { width:7px; height:7px; border-radius:50%; background:#334155; flex-shrink:0; }
     .sg-filter-row.active .sg-filter-dot { background:#3b82f6; }
     .sg-filter-name { flex:1; font-size:11px; font-weight:600; }
-    .sg-filter-statcount { color:#4b5563; font-size:10px; }
     .sg-icon-btn {
       background:none; border:none; color:#4b5563;
       cursor:pointer; padding:2px 4px; border-radius:4px; font-size:11px;
@@ -2631,18 +2648,12 @@
     for (const [key, fc] of state.filters) {
       const isActive  = key === state.activeFilterKey;
       const isEditing = fe?.key === key;
-      const _scParts = [];
-      if (fc.preferredStats.size) _scParts.push(`${fc.preferredStats.size} must`);
-      if (fc.stats.size)          _scParts.push(`${fc.stats.size} pref`);
-      if (fc.optional?.size)      _scParts.push(`${fc.optional.size} opt`);
-      if (fc.avoid?.size)         _scParts.push(`${fc.avoid.size} avoid`);
-      const _scText = _scParts.length ? _scParts.join(" · ") : "0 stats";
       html += `<div class="sg-filter-row${isActive?" active":""}${fc.enabled?"":" disabled"}" data-fkey="${esc(key)}" title="${isActive?"Active filter — click another row to switch":"Click to set as active filter"}">
         <div class="sg-filter-dot"></div>
         <span class="sg-filter-name">${esc(key)}</span>
-        <span class="sg-filter-statcount">${_scText}</span>
-        <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter (items won't be scored by this filter)":"Enable filter"}">${fc.enabled?"●":"○"}</button>
-        <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter: set Must have (★ ±4), Preferred (♥ ±2), Optional (◎), or Avoid (✗) per stat">✏</button>
+        <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter":"Enable filter"}">${fc.enabled?"●":"○"}</button>
+        <button class="sg-icon-btn" data-dup="${esc(key)}" title="Duplicate as ${esc(key)}_Copy">⎘</button>
+        <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter stats">✏</button>
         ${state.filters.size>1?`<button class="sg-icon-btn" data-del="${esc(key)}" title="Delete this filter">✗</button>`:""}
       </div>`;
       if (isEditing) {
@@ -2650,6 +2661,7 @@
           <div class="sg-filter-edit-row">
             <input class="sg-filter-input" id="aimSgFeName" value="${esc(fe.name)}" placeholder="Filter name">
             <button class="sg-btn" id="aimSgFeSave">Save</button>
+            <button class="sg-btn" id="aimSgFeClean" title="Clear all stat selections for this filter">Clean</button>
             <button class="sg-btn" id="aimSgFeCancel">✗</button>
           </div>
           <div style="font-size:10px;color:#64748b;margin:2px 0 4px;">Click to cycle: Neutral → ★ Must have (±4) → ♥ Preferred (±2) → ◎ Optional → ✗ Avoid → Neutral</div>
@@ -4313,6 +4325,16 @@
           saveFilters(); render();
         });
       });
+      body.querySelectorAll("[data-dup]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const key   = btn.dataset.dup;
+          const fc    = state.filters.get(key); if (!fc) return;
+          const copy  = key + "_Copy";
+          state.filters.set(copy, mkFC([...fc.stats], fc.enabled, {...fc.multiBonus}, [...fc.preferredStats], [...(fc.optional ?? [])], [...(fc.avoid ?? [])]));
+          saveFilters(); render();
+        });
+      });
       document.getElementById("aimSgFeSave")?.addEventListener("click", () => {
         const fe = state.filterEdit; if (!fe) return;
         const newName = (document.getElementById("aimSgFeName")?.value||fe.key).trim();
@@ -4327,6 +4349,14 @@
       });
       document.getElementById("aimSgFeCancel")?.addEventListener("click", () => {
         state.filterEdit = null; render();
+      });
+      document.getElementById("aimSgFeClean")?.addEventListener("click", () => {
+        if (!state.filterEdit) return;
+        state.filterEdit.stats          = new Set();
+        state.filterEdit.preferredStats = new Set();
+        state.filterEdit.optional       = new Set();
+        state.filterEdit.avoid          = new Set();
+        render();
       });
       body.querySelectorAll("[data-estat]").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -4650,7 +4680,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.50.0',
+    version:     '8.51.0',
     category:    'fighter',
   });
 })();
