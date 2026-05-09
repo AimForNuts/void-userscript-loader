@@ -16,7 +16,7 @@
    * CONSTANTS
    **************************************************************************/
 
-  const MODULE_VERSION = '8.57.0';
+  const MODULE_VERSION = '8.58.0';
 
   const RARITY_COLOR = {
     MYTHIC: "#B33A3A", LEGENDARY: "#C6A85C",
@@ -4250,21 +4250,49 @@
   function injectInspectBadge(modal) {
     const fkey = Object.keys(modal).find(k => k.startsWith("__reactFiber"));
     let playerId = null;
+    let dataFiber = null;
     if (fkey) {
       let fiber = modal[fkey]; let depth = 0;
       while (fiber && depth < 20) {
         const p = fiber.memoizedProps;
         if (p) {
           const raw = p.playerId ?? p.targetPlayerId ?? p.inspectPlayerId ?? p.userId ?? p.id ?? null;
-          if (raw && typeof raw === "string" && raw.length > 8) { playerId = raw.toLowerCase(); break; }
+          if (raw && typeof raw === "string" && raw.length > 8) {
+            playerId = raw.toLowerCase();
+            dataFiber = fiber;
+            break;
+          }
         }
         fiber = fiber.return; depth++;
       }
     }
     if (!playerId) return;
 
+    // Read equipped items from React hook 0 state on the same fiber
+    function getEquipped() {
+      const d = dataFiber?.memoizedState?.memoizedState;
+      return Array.isArray(d?.equipped) && d.equipped.length > 0 ? d : null;
+    }
+
+    let refreshBadge = null;
+
+    function tryResolveSave() {
+      if (trackedProfiles[playerId]) return true;
+      const fiberData = getEquipped();
+      if (!fiberData) return false;
+      const usernameEl = modal.querySelector(".inspect-username");
+      const username  = usernameEl?.textContent?.trim() || "Unknown";
+      const levelText = modal.querySelector(".inspect-level")?.textContent?.trim() ?? "";
+      recordSnapshot(playerId, username, levelText, { ...fiberData, equipped: fiberData.equipped });
+      refreshBadge?.();
+      return true;
+    }
+
     function tryAutoSave() {
-      if (modal.querySelector(".sg-inspect-badge")) return;
+      if (modal.querySelector(".sg-inspect-badge")) {
+        tryResolveSave();
+        return;
+      }
       const usernameEl = modal.querySelector(".inspect-username");
       if (!usernameEl) return;
 
@@ -4281,7 +4309,7 @@
       const actionBtn = document.createElement("button");
       actionBtn.className = "sg-inspect-badge-btn";
 
-      function refreshBadge() {
+      refreshBadge = function() {
         const tp = trackedProfiles[playerId];
         const inTeam = tp ? tp.teamMember !== false : false;
         const saved  = !!tp;
@@ -4290,7 +4318,7 @@
         actionBtn.className = "sg-inspect-badge-btn " + (inTeam ? "remove" : "add");
         actionBtn.style.display = saved ? "" : "none";
         badge.style.borderColor = inTeam ? "rgba(74,222,128,.3)" : "rgba(100,116,139,.3)";
-      }
+      };
 
       actionBtn.addEventListener("click", e => {
         e.stopPropagation();
@@ -4307,28 +4335,21 @@
 
       badge.appendChild(labelEl);
       badge.appendChild(actionBtn);
-
-      pendingModalInfo[playerId] = { username, levelText, refreshBadge };
-      console.log("[aim] badge injected playerId:", playerId, "username:", username);
-      const data = pendingInspect[playerId];
-      if (data) {
-        recordSnapshot(playerId, username, levelText, data);
-        refreshBadge();
-      } else {
-        refreshBadge();
-      }
-
       modal.appendChild(badge);
+
+      // Also keep fetch-based fallback in pendingModalInfo
+      pendingModalInfo[playerId] = { username, levelText, refreshBadge };
+      tryResolveSave();
+      refreshBadge();
     }
 
     tryAutoSave();
-    if (!modal.querySelector(".sg-inspect-badge")) {
-      const obs = new MutationObserver(() => {
-        tryAutoSave();
-        if (modal.querySelector(".sg-inspect-badge")) obs.disconnect();
-      });
-      obs.observe(modal, { childList: true, subtree: true });
-    }
+    // Keep observing until saved — handles data loading after modal opens
+    const obs = new MutationObserver(() => {
+      tryAutoSave();
+      if (trackedProfiles[playerId]) obs.disconnect();
+    });
+    obs.observe(modal, { childList: true, subtree: true });
   }
 
   function setupInspectObserver() {
@@ -4757,7 +4778,7 @@
     name:        'Aim Loot Helper',
     icon:        '⚡',
     description: 'Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.',
-    version:     '8.57.0',
+    version:     '8.58.0',
     category:    'fighter',
   });
 })();
