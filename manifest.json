@@ -1,5 +1,5 @@
 {
-  "version": "2026-05-09.1",
+  "version": "2026-05-09.2",
   "categories": [
     { "id": "misc",    "label": "Misc"    },
     { "id": "fighter", "label": "Fighter" },
@@ -121,8 +121,8 @@
       "icon": "⚡",
       "description": "Stats, DPS, EHP, gear comparison, roll quality, and multi-filter scoring.",
       "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/aim-loot-helper.js",
-      "version": "8.46.0",
-      "integrity": "sha256-vewBLuJ/7+Pme2NCLmnrjvDtpY3tkDlVR7LWZ45vmDc=",
+      "version": "8.47.0",
+      "integrity": "sha256-DpiA8p/YtnLaWFTEeNlPjdHveRs3ZPEyX0k7KKiM58o=",
       "category": "fighter",
       "enabled": true,
       "dependencies": ["core"]
