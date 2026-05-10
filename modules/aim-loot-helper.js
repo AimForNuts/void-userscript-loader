@@ -2497,12 +2497,12 @@
 
         html += `</tbody></table>
         <div class="sg-debug-summary">
-          <span>cov <b>${bd.mustHaveCoverageScore.toFixed(1)}</b></span>
-          <span>pow <b>${bd.mustHavePowerScore.toFixed(1)}</b></span>
-          <span>pref <b>${bd.cappedPreferredScore.toFixed(1)}</b>${bd.rawPreferredScore !== bd.cappedPreferredScore ? ` <span style="color:#4b5563;">(raw ${bd.rawPreferredScore.toFixed(1)})</span>` : ""}</span>
+          <span>Must-have presence <b>${bd.mustHaveCoverageScore.toFixed(1)}</b></span>
+          <span>Must-have stat gain <b>${bd.mustHavePowerScore.toFixed(1)}</b></span>
+          <span>Preferred stat gain <b>${bd.cappedPreferredScore.toFixed(1)}</b>${bd.rawPreferredScore !== bd.cappedPreferredScore ? ` <span style="color:#4b5563;">(Before cap ${bd.rawPreferredScore.toFixed(1)})</span>` : ""}</span>
           ${bd.avoidOpportunityCost ? `<span>avoid <b style="color:#f87171;">${bd.avoidOpportunityCost.toFixed(1)}</b></span>` : ""}
-          ${bd.neutralScore ? `<span>neutral <b>${bd.neutralScore.toFixed(1)}</b></span>` : ""}
-          ${bd.optionalScore ? `<span>opt <b>${bd.optionalScore.toFixed(1)}</b></span>` : ""}
+          ${bd.neutralScore ? `<span>Neutral stat gain <b>${bd.neutralScore.toFixed(1)}</b></span>` : ""}
+          ${bd.optionalScore ? `<span>Optional stat gain <b>${bd.optionalScore.toFixed(1)}</b></span>` : ""}
           ${bd.multiRollBonus ? `<span>multi <b>${bd.multiRollBonus.toFixed(1)}</b></span>` : ""}
           <span style="color:#e8eefc;font-weight:700;">= ${bd.finalScore.toFixed(1)}</span>
         </div>
