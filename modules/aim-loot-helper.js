@@ -1492,6 +1492,8 @@
 
   // Caps recommendation based on roll quality — diffs and scores are not affected
   function applyQualityCap(rec, cat, rollQualities, multiRollCount, slotType) {
+    rec.qualityCapReason = null;
+
     const qVals = Object.values(rollQualities);
     if (!qVals.length) return { rec, cat };
 
@@ -1503,7 +1505,10 @@
       const atkQ = rollQualities["atk"] ?? null;
       if (atkQ !== null && atkQ < 0.75 && multiRollCount === 0) {
         if (cat === "bis" || cat === "top" || cat === "good") {
-          return { rec:{ label:"💾 Salvage", cls:"rec-sal" }, cat:"sal" };
+          return {
+            rec: { label:"💾 Salvage", cls:"rec-sal", qualityCapReason:`ATK roll quality ${Math.round(atkQ * 100)}% is below the 75% threshold` },
+            cat: "sal",
+          };
         }
       }
     }
@@ -1512,11 +1517,17 @@
     if (median < 0.75) {
       if (hasAllStats) {
         // allStats exception: force exactly Good — allStats has inherent value so prevent Salvage too
-        return { rec:{ label:"👍 Good", cls:"rec-good" }, cat:"good" };
+        return {
+          rec: { label:"👍 Good", cls:"rec-good", qualityCapReason:`Median roll quality ${Math.round(median * 100)}% is below the 75% threshold (allStats item forced to Good)` },
+          cat: "good",
+        };
       }
       // Normal case: block BiS and Top only
       if (cat === "bis" || cat === "top") {
-        return { rec:{ label:"👍 Good", cls:"rec-good" }, cat:"good" };
+        return {
+          rec: { label:"👍 Good", cls:"rec-good", qualityCapReason:`Median roll quality ${Math.round(median * 100)}% is below the 75% threshold` },
+          cat: "good",
+        };
       }
     }
 
@@ -1762,8 +1773,10 @@
     }
 
     const activeBd = filterBreakdowns[activeKey];
+    const preCapRec = recommendation(prefScore, activeBd?.mustHaveMissingCount ?? 0);
+    const rawRec = { ...preCapRec };
     let { rec, cat } = applyQualityCap(
-      recommendation(prefScore, activeBd?.mustHaveMissingCount ?? 0),
+      preCapRec,
       categoryOf(prefScore, activeBd?.mustHaveMissingCount ?? 0),
       rollQualities, multiRollCount, slotType
     );
@@ -1835,7 +1848,7 @@
       shards: item.sellPrice,
       filterScores, filterBreakdowns, filterHasPriorityMR, filterHasPrefMR,
       prefScore, bestFilter, bestFilterScore,
-      rec, cat,
+      rec, cat, rawRec,
       isLegacyStar: item.forgeTier === "starforged",
     };
   }
@@ -2252,6 +2265,7 @@
     .sg-debug-table td { padding:2px 6px; vertical-align:middle; }
     .sg-debug-table tr:hover td { background:rgba(255,255,255,.03); }
     .sg-debug-summary { display:flex; flex-wrap:wrap; gap:6px; padding:6px 4px 2px; font-size:10px; color:#64748b; border-top:1px solid rgba(255,255,255,.05); margin-top:4px; }
+    .debug-cap-warning { color:#f0a030; font-size:0.85em; margin-top:2px; padding:2px 8px; }
 
     .sg-footer {
       text-align:center; font-size:9px; color:#1e293b;
@@ -2472,7 +2486,9 @@
         <span class="sg-debug-slot" style="color:#4b5563;">${esc(slotLbl)}</span>
         <span class="sg-badge ${rec.cls}" style="font-size:9px;">${esc(rec.label)}</span>
         <span class="sg-debug-score" style="color:${bd.finalScore>=0?"#4ade80":"#f87171"};font-weight:700;">${bd.finalScore.toFixed(1)}</span>
-      </div>`;
+      </div>
+      ${item.rawRec && item.rawRec.label !== rec.label ? `<div class="debug-cap-warning">Score verdict: ${esc(item.rawRec.label)} → overridden to: ${esc(rec.label)}</div>` : ""}
+      ${rec.qualityCapReason ? `<div class="debug-cap-warning">⚠ Reason: ${esc(rec.qualityCapReason)}</div>` : ""}`;
 
       if (isOpen) {
         html += `<div class="sg-debug-body">
