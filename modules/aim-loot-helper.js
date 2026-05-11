@@ -357,7 +357,14 @@
     tiers: {
       quality:  { perfect: 95, excellent: 85, good: 70, usable: 50 },
       fit:      { perfect: 95, strong: 80, partial: 60, weak: 30 },
-      upgrade:  { major: 60, upgrade: 25, minor: 10, sidegradeMin: -9, minorDowngrade: -10, downgrade: -25 },
+      upgrade: {
+        major: 60,
+        upgrade: 25,
+        minor: 10,
+        sidegradeMin: -9,
+        minorDowngradeStart: -10, // top of Minor Downgrade band; equals sidegradeMin - 1
+        downgrade: -25,           // floor: scores <= this are Downgrade (Minor Downgrade covers > downgrade)
+      },
     },
 
     // Migration flag
@@ -1948,6 +1955,7 @@
     console.log(`\nTotal: ${passed} passed, ${failed} failed`);
     console.groupEnd(); // V9 Scoring Tests
   }
+  window.runV9ScoringTests = runV9ScoringTests;
 
   function _buildFitLabel(score) {
     const t = V9_CONFIG.tiers.fit;
@@ -2037,8 +2045,11 @@
     if (score >= t.upgrade)        return 'Upgrade';
     if (score >= t.minor)          return 'Minor Upgrade';
     if (score >= t.sidegradeMin)   return 'Sidegrade';
-    if (score > t.downgrade) return 'Minor Downgrade'; // > -25, so covers -24 to -10
-    return 'Downgrade';                                 // <= -25
+    // Note: uses t.downgrade (not t.minorDowngradeStart) because the Minor Downgrade
+    // band spans -24 to -10; checking >= t.minorDowngradeStart (-10) would only catch
+    // exactly -10 and leave -11 to -24 mislabeled as Downgrade.
+    if (score > t.downgrade) return 'Minor Downgrade';
+    return 'Downgrade';
   }
 
   function computeUpgradeScore(ownBaseStats, eqBaseStats, fc, rollQualities, eligibleStats = null) {
@@ -2309,7 +2320,7 @@
 
     const activeBd = filterBreakdowns[activeKey];
     const preCapRec = recommendation(prefScore, activeBd?.mustHaveMissingCount ?? 0);
-    const rawRec = { ...preCapRec };
+    const rawRec = { ...preCapRec }; // snapshot BEFORE applyQualityCap mutates preCapRec in-place
     let { rec, cat } = applyQualityCap(
       preCapRec,
       categoryOf(prefScore, activeBd?.mustHaveMissingCount ?? 0),
