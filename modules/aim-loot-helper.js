@@ -2332,8 +2332,16 @@
       }
     }
 
-    const v9GearQuality = computeGearQuality(item);
-    const v9BuildFit    = computeBuildFit(item, activeFC, eligibleStats);
+    const v9GearQuality    = computeGearQuality(item);
+    const v9BuildFit       = computeBuildFit(item, activeFC, eligibleStats);
+    const v9Upgrade        = computeUpgradeScore(
+      ownBaseStats,
+      eqBaseStats,
+      activeFC,
+      item.stats._qualities ?? {},
+      eligibleStats
+    );
+    const v9Recommendation = computeRecommendation(v9GearQuality, v9BuildFit, v9Upgrade);
 
     // Class usability restriction — unusable item types are capped at Good regardless
     let classRestricted = false;
@@ -2367,7 +2375,7 @@
       prefScore, bestFilter, bestFilterScore,
       rec, cat, rawRec,
       isLegacyStar: item.forgeTier === "starforged",
-      v9GearQuality, v9BuildFit,
+      v9GearQuality, v9BuildFit, v9Upgrade, v9Recommendation,
     };
   }
 
@@ -2784,7 +2792,11 @@
     .sg-debug-table tr:hover td { background:rgba(255,255,255,.03); }
     .sg-debug-summary { display:flex; flex-wrap:wrap; gap:6px; padding:6px 4px 2px; font-size:10px; color:#64748b; border-top:1px solid rgba(255,255,255,.05); margin-top:4px; }
     .debug-cap-warning { color:#f0a030; font-size:0.85em; margin-top:2px; padding:2px 8px; }
+    .debug-v9-section   { margin-top: 8px; border-top: 1px solid #333; padding-top: 6px; font-size: 0.85em; padding: 6px 8px 4px; }
+    .debug-v9-header    { color: #888; margin-bottom: 4px; }
     .debug-v9-row { font-size: 0.85em; color: #aaa; margin-top: 2px; padding: 2px 8px; }
+    .debug-v9-breakdown { margin-left: 12px; color: #999; }
+    .debug-v9-summary   { font-style: italic; margin-top: 4px; }
     .debug-v9-label { min-width: 80px; display: inline-block; }
 
     .sg-footer {
@@ -3010,16 +3022,29 @@
       ${rec.qualityCapReason ? `<div class="debug-cap-warning">Score verdict: ${esc(item.rawRec?.label ?? '?')} → overridden to: ${esc(rec.label)}</div>` : ""}
       ${rec.qualityCapReason ? `<div class="debug-cap-warning">⚠ Reason: ${esc(rec.qualityCapReason)}</div>` : ""}`;
 
-      if (item.v9GearQuality) {
-        html += `<div class="debug-v9-row">`;
-        html += `<span class="debug-v9-label">Quality:</span> `;
-        html += `${item.v9GearQuality.score}/100 — ${item.v9GearQuality.label}`;
+      if (item.v9Upgrade) {
+        const up  = item.v9Upgrade;
+        const gq  = item.v9GearQuality;
+        const bf  = item.v9BuildFit;
+        const rec9 = item.v9Recommendation;
+
+        html += `<div class="debug-v9-section">`;
+        html += `<div class="debug-v9-header">── v9 Scoring ──</div>`;
+        html += `<div class="debug-v9-row"><b>Upgrade:</b> ${up.label}&nbsp;&nbsp;${up.score >= 0 ? '+' : ''}${up.score}</div>`;
+        html += `<div class="debug-v9-row"><b>Quality:</b> ${gq.score}/100 — ${gq.label}</div>`;
+        html += `<div class="debug-v9-row"><b>Fit:</b> ${bf.score}/100 — ${bf.label}</div>`;
+        if (rec9 && rec9.overlay) {
+          html += `<div class="debug-v9-row"><b>Overlay:</b> ${rec9.overlay}</div>`;
+        }
+        if (rec9) {
+          html += `<div class="debug-v9-row debug-v9-summary">${rec9.summary}</div>`;
+        }
+        html += `<div class="debug-v9-breakdown">`;
+        html += `<div>Must-have adjustment: ${up.mustHaveAdjustment >= 0 ? '+' : ''}${up.mustHaveAdjustment.toFixed(1)}</div>`;
+        html += `<div>Coverage bonus: +${up.coverageBonus.toFixed(2)} (${up.desiredStatsImproved}/${up.desiredStatsEligible} desired stats improved)</div>`;
+        html += `<div>Neutral gain: ${up.neutralContribution >= 0 ? '+' : ''}${up.neutralContribution.toFixed(1)}</div>`;
+        html += `<div>Stat magnitude: ${up.magnitudeScore >= 0 ? '+' : ''}${up.magnitudeScore.toFixed(1)}</div>`;
         html += `</div>`;
-      }
-      if (item.v9BuildFit) {
-        html += `<div class="debug-v9-row">`;
-        html += `<span class="debug-v9-label">Build Fit:</span> `;
-        html += `${item.v9BuildFit.score}/100 — ${item.v9BuildFit.label}`;
         html += `</div>`;
       }
 
