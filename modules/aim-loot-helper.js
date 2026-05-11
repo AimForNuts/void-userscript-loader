@@ -1878,6 +1878,73 @@
 
     console.groupEnd(); // computeBuildFit
 
+    console.group('Delta transform helpers');
+
+    // statFloor: candidateValue=19, quality=92 → 19*(50/92) ≈ 10.326
+    assert('_computeStatFloor(19, 92) ≈ 10.33', _computeStatFloor(19, 92), 10.326, 0.05);
+
+    // statFloor: quality=0 → clamped to 1 → 19*50 = 950
+    assert('_computeStatFloor handles quality=0', _computeStatFloor(19, 0), 950, 1);
+
+    // valueGain: +100% → log2(2) = 1.00
+    assert('_computeValueGain +100% = 1.00', _computeValueGain(20, 10, 5), 1.00, 0.01);
+
+    // valueGain: +5% → log2(1.05) ≈ 0.0703
+    assert('_computeValueGain +5% ≈ 0.07', _computeValueGain(10.5, 10, 5), 0.0703, 0.005);
+
+    // valueGain: -5% → negative
+    assert('_computeValueGain -5% ≈ -0.07', _computeValueGain(9.5, 10, 5), -0.0703, 0.005);
+
+    // newly gained stat (equippedValue=0)
+    const gainedFloor = _computeStatFloor(19, 92); // ≈ 10.326
+    assert('Newly gained stat has positive valueGain', _computeValueGain(19, 0, gainedFloor) > 0, true);
+
+    console.groupEnd();
+
+    console.group('computeUpgradeScore');
+
+    // Build a minimal fc-like object that mimics the Set-based structure
+    const upgradeBowFilter = {
+      preferredStats: new Set(['atk']),
+      stats: new Set(['atkSpeed', 'critChance']),
+      optional: new Set(['allStats']),
+      avoid: new Set([]),
+    };
+
+    // Test A: +100% ATK (Item A from spec worked example)
+    const ownA = { atk: 20 };
+    const eqA  = { atk: 10 };
+    const quA  = { atk: 80 };
+    const upA  = computeUpgradeScore(ownA, eqA, upgradeBowFilter, quA);
+    // floor = 20*(50/80) = 12.5; denom = max(10, 12.5) = 12.5
+    // delta = (20-10)/12.5 = 0.8; valueGain = log2(1.8) ≈ 0.848
+    // ATK contribution = 100 × 0.848 = 84.8
+    // coverage: 1 eligible (atk has eq>0 or cand>0), 1 improved → ratio=1/1=1 → bonus = 20×1=20
+    // score ≈ round(84.8 + 20) = 105
+    assert('Item A (big ATK) score ≥ 60 (Major Upgrade)', upA.score >= 60, true);
+    assertEq('Item A label = Major Upgrade', upA.label, 'Major Upgrade');
+
+    // Test B: +5% everywhere (Item B from spec worked example)
+    const ownB = { atk: 10.5, critChance: 2.1, atkSpeed: 1.05, allStats: 1.05 };
+    const eqB  = { atk: 10,   critChance: 2.0, atkSpeed: 1.00, allStats: 1.00 };
+    const quB  = { atk: 80, critChance: 80, atkSpeed: 80, allStats: 80 };
+    const upB  = computeUpgradeScore(ownB, eqB, upgradeBowFilter, quB);
+    // All +5%: each log2(1.05) ≈ 0.0703
+    // ATK: 100×0.07=7; Crit%: 45×0.07=3.15; AtkSpeed: 45×0.07=3.15; AllStats: 12×0.07=0.84
+    // magnitude ≈ 14.14; coverage: 4/4 improved → bonus = 20×1=20
+    // score ≈ round(34.14) = 34
+    assert('Item B (+5% all) score ≈ 34', upB.score, 34, 5);
+    assert('Item A beats Item B decisively', upA.score > upB.score, true);
+
+    // Test: Lost must-have
+    const ownLost = {};
+    const eqLost  = { atk: 14 };
+    const quLost  = {};
+    const upLost  = computeUpgradeScore(ownLost, eqLost, upgradeBowFilter, quLost);
+    assert('Lost must-have adjustment = -35', upLost.mustHaveAdjustment, -35, 0);
+
+    console.groupEnd();
+
     console.log(`\nTotal: ${passed} passed, ${failed} failed`);
     console.groupEnd(); // V9 Scoring Tests
   }
@@ -1943,6 +2010,181 @@
       slotEfficiency,
       avoidStatsPresent: avoidPresent,
     };
+  }
+
+  // -----------------------------------------------------------------------
+  // Delta transform helpers (Task 10)
+  // -----------------------------------------------------------------------
+
+  function _computeStatFloor(candidateValue, qualityPercent) {
+    const safeQuality = Math.max(qualityPercent, 1);
+    return Math.abs(candidateValue) * (V9_CONFIG.statFloorQuality / safeQuality);
+  }
+
+  function _computeValueGain(candidateValue, equippedValue, statFloor) {
+    const denominator = Math.max(Math.abs(equippedValue), statFloor, 0.0001);
+    const relativeDelta = (candidateValue - equippedValue) / denominator;
+    return Math.sign(relativeDelta) * Math.log2(1 + Math.abs(relativeDelta));
+  }
+
+  // -----------------------------------------------------------------------
+  // Upgrade scoring (Task 11)
+  // -----------------------------------------------------------------------
+
+  function _upgradeLabel(score) {
+    const t = V9_CONFIG.tiers.upgrade;
+    if (score >= t.major)          return 'Major Upgrade';
+    if (score >= t.upgrade)        return 'Upgrade';
+    if (score >= t.minor)          return 'Minor Upgrade';
+    if (score >= t.sidegradeMin)   return 'Sidegrade';
+    if (score >= t.minorDowngrade) return 'Minor Downgrade';
+    return 'Downgrade';
+  }
+
+  function computeUpgradeScore(ownBaseStats, eqBaseStats, fc, rollQualities, eligibleStats = null) {
+    const isEligible = key => !eligibleStats || eligibleStats.has(key);
+
+    // Build role map: statKey → role string
+    const roleMap = {};
+    [...(fc.preferredStats ?? [])].forEach(k => { roleMap[k] = 'mustHave'; });
+    [...(fc.stats ?? [])].forEach(k => { if (!roleMap[k]) roleMap[k] = 'preferred'; });
+    [...(fc.optional ?? [])].forEach(k => { if (!roleMap[k]) roleMap[k] = 'optional'; });
+    [...(fc.avoid ?? [])].forEach(k => { if (!roleMap[k]) roleMap[k] = 'avoid'; });
+
+    // Union of all stat keys from candidate and equipped (minus _qualities)
+    const allKeys = new Set([
+      ...Object.keys(ownBaseStats ?? {}),
+      ...Object.keys(eqBaseStats ?? {}),
+    ]);
+    allKeys.delete('_qualities');
+
+    const roleWeights = V9_CONFIG.roleWeights;
+    const statResults = [];
+    let magnitudeScore = 0;
+    let mustHaveAdjustment = 0;
+    let desiredImproved = 0;
+    let desiredEligible = 0;
+
+    for (const key of allKeys) {
+      if (!isEligible(key)) continue;
+
+      const candidateVal = ownBaseStats[key] ?? 0;
+      const equippedVal  = eqBaseStats[key]  ?? 0;
+      const qualityPct   = rollQualities[key] ?? V9_CONFIG.statFloorQuality;
+      const role         = roleMap[key] ?? 'neutral';
+
+      if (role === 'avoid') {
+        const contribution = (candidateVal > 0 && equippedVal === 0)
+          ? -V9_CONFIG.avoidNewStatPenalty
+          : 0;
+        magnitudeScore += contribution;
+        statResults.push({
+          stat: key, role,
+          equippedValue: equippedVal, candidateValue: candidateVal,
+          statFloor: 0, relativeDelta: 0, valueGain: 0, weight: 0, contribution,
+          isMultiRoll: false, multiRollCount: 1,
+        });
+        continue;
+      }
+
+      const statFloor = _computeStatFloor(candidateVal || equippedVal, qualityPct);
+      const valueGain = _computeValueGain(candidateVal, equippedVal, statFloor);
+      const weight    = roleWeights[role] ?? roleWeights.neutral;
+      const contribution = weight * valueGain;
+
+      // Must-have presence adjustment
+      if (role === 'mustHave') {
+        if (candidateVal > 0 && equippedVal === 0) mustHaveAdjustment += V9_CONFIG.mustHaveGainedBonus;
+        if (candidateVal === 0 && equippedVal > 0) mustHaveAdjustment -= V9_CONFIG.mustHaveLostPenalty;
+      }
+
+      // Coverage: desired = mustHave + preferred + optional
+      if (role === 'mustHave' || role === 'preferred' || role === 'optional') {
+        if (candidateVal > 0 || equippedVal > 0) {
+          desiredEligible++;
+          if (valueGain > 0) desiredImproved++;
+        }
+      }
+
+      magnitudeScore += contribution;
+
+      const denominator = Math.max(Math.abs(equippedVal), statFloor, 0.0001);
+      statResults.push({
+        stat: key, role,
+        equippedValue: equippedVal,
+        candidateValue: candidateVal,
+        statFloor,
+        relativeDelta: (candidateVal - equippedVal) / denominator,
+        valueGain,
+        weight,
+        contribution,
+        isMultiRoll: false,
+        multiRollCount: 1,
+      });
+    }
+
+    const coverageRatio = desiredEligible > 0 ? desiredImproved / desiredEligible : 0;
+    const coverageBonus = V9_CONFIG.coverageBonusMax * coverageRatio * coverageRatio;
+
+    const rawScore = magnitudeScore + coverageBonus + mustHaveAdjustment;
+    const score    = Math.round(rawScore);
+
+    return {
+      score,
+      label: _upgradeLabel(score),
+      magnitudeScore,
+      coverageBonus,
+      mustHaveAdjustment,
+      neutralContribution: statResults
+        .filter(r => r.role === 'neutral')
+        .reduce((s, r) => s + r.contribution, 0),
+      stats: statResults,
+      desiredStatsImproved: desiredImproved,
+      desiredStatsEligible: desiredEligible,
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // Recommendation (Task 13)
+  // -----------------------------------------------------------------------
+
+  function _topContributingStat(upgrade) {
+    const top = [...upgrade.stats]
+      .filter(r => r.role !== 'avoid')
+      .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))[0];
+    return top
+      ? `${top.stat} (${top.contribution > 0 ? '+' : ''}${top.contribution.toFixed(1)})`
+      : 'stat gains';
+  }
+
+  function computeRecommendation(gearQuality, buildFit, upgrade) {
+    const primary = upgrade.label;
+
+    let overlay = null;
+    const gq = gearQuality.score;
+    const bf = buildFit.score;
+    const up = upgrade.score;
+
+    if (bf >= 95 && gq >= 85) {
+      overlay = 'Best-in-Slot Candidate';
+    } else if (gq >= 95) {
+      overlay = 'Perfect Roll';
+    } else if (up >= 10 && bf < 60) {
+      overlay = 'Temporary Upgrade';
+    } else if (gq >= 85 && bf < 60) {
+      overlay = 'Keep — High Quality';
+    } else if (up >= 10 && gq < 50) {
+      overlay = 'Low-quality Upgrade';
+    }
+
+    const parts = [];
+    if (up >= 10)  parts.push(`${upgrade.label.toLowerCase()} due to ${_topContributingStat(upgrade)}`);
+    if (gq >= 85)  parts.push('well-rolled item');
+    if (bf < 60)   parts.push('poor build fit');
+    if (up < -9)   parts.push('worse than equipped across key stats');
+    const summary = parts.length > 0 ? parts.join('; ') + '.' : 'No significant change.';
+
+    return { primary, overlay, summary };
   }
 
   function _buildBagItem(item, equippedMap, filterKeyOverride = null) {
