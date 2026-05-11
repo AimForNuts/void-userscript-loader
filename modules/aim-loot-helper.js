@@ -2090,6 +2090,9 @@
       }
     }
 
+    const v9GearQuality = computeGearQuality(item);
+    const v9BuildFit    = computeBuildFit(item, activeFC, eligibleStats);
+
     // Class usability restriction — unusable item types are capped at Good regardless
     let classRestricted = false;
     const eqWeapon = equippedMap["Weapon"];
@@ -2122,6 +2125,7 @@
       prefScore, bestFilter, bestFilterScore,
       rec, cat, rawRec,
       isLegacyStar: item.forgeTier === "starforged",
+      v9GearQuality, v9BuildFit,
     };
   }
 
@@ -2538,6 +2542,8 @@
     .sg-debug-table tr:hover td { background:rgba(255,255,255,.03); }
     .sg-debug-summary { display:flex; flex-wrap:wrap; gap:6px; padding:6px 4px 2px; font-size:10px; color:#64748b; border-top:1px solid rgba(255,255,255,.05); margin-top:4px; }
     .debug-cap-warning { color:#f0a030; font-size:0.85em; margin-top:2px; padding:2px 8px; }
+    .debug-v9-row { font-size: 0.85em; color: #aaa; margin-top: 2px; padding: 2px 8px; }
+    .debug-v9-label { min-width: 80px; display: inline-block; }
 
     .sg-footer {
       text-align:center; font-size:9px; color:#1e293b;
@@ -2761,6 +2767,19 @@
       </div>
       ${rec.qualityCapReason ? `<div class="debug-cap-warning">Score verdict: ${esc(item.rawRec?.label ?? '?')} → overridden to: ${esc(rec.label)}</div>` : ""}
       ${rec.qualityCapReason ? `<div class="debug-cap-warning">⚠ Reason: ${esc(rec.qualityCapReason)}</div>` : ""}`;
+
+      if (item.v9GearQuality) {
+        html += `<div class="debug-v9-row">`;
+        html += `<span class="debug-v9-label">Quality:</span> `;
+        html += `${item.v9GearQuality.score}/100 — ${item.v9GearQuality.label}`;
+        html += `</div>`;
+      }
+      if (item.v9BuildFit) {
+        html += `<div class="debug-v9-row">`;
+        html += `<span class="debug-v9-label">Build Fit:</span> `;
+        html += `${item.v9BuildFit.score}/100 — ${item.v9BuildFit.label}`;
+        html += `</div>`;
+      }
 
       if (isOpen) {
         html += `<div class="sg-debug-body">
