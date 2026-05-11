@@ -321,6 +321,49 @@
     goodThreshold:                       0,
   };
 
+  const V9_CONFIG = {
+    // Gear Quality
+    qualityAverageWeight: 0.70,
+    qualityMedianWeight:  0.30,
+    qualityStatWeights: {
+      primary: 1.25,
+      bonus:   1.00,
+    },
+
+    // Build Fit
+    coverageWeights: {
+      mustHave:  60,
+      preferred: 25,
+      optional:  10,
+      neutral:    5,
+    },
+    slotEfficiencyMax:   15,
+    avoidPenaltyPerStat: 20,
+
+    // Upgrade Score
+    roleWeights: {
+      mustHave:  100,
+      preferred:  45,
+      optional:   12,
+      neutral:     5,
+    },
+    avoidNewStatPenalty:   20,
+    coverageBonusMax:      20,
+    mustHaveGainedBonus:   15,
+    mustHaveLostPenalty:   35,
+    statFloorQuality:      50,
+
+    // Tier thresholds
+    tiers: {
+      quality:  { perfect: 95, excellent: 85, good: 70, usable: 50 },
+      fit:      { perfect: 95, strong: 80, partial: 60, weak: 30 },
+      upgrade:  { major: 60, upgrade: 25, minor: 10, sidegradeMin: -9, minorDowngrade: -10, downgrade: -25 },
+    },
+
+    // Migration flag
+    SCORING_MODEL: 'legacy',
+  };
+
   /**************************************************************************
    * FILTER STORAGE
    **************************************************************************/
@@ -1671,6 +1714,120 @@
 
     state.bagItemsRaw = inventory.filter(item => !item.equippedSlot && GEAR_ITEM_TYPES.has(item.type));
     state.bagItems    = state.bagItemsRaw.map(item => _buildBagItem(item, equippedMap));
+  }
+
+  function _gearQualityLabel(score) {
+    const t = V9_CONFIG.tiers.quality;
+    if (score >= t.perfect)   return 'Perfect';
+    if (score >= t.excellent) return 'Excellent';
+    if (score >= t.good)      return 'Good';
+    if (score >= t.usable)    return 'Usable';
+    return 'Poor';
+  }
+
+  function computeGearQuality(item) {
+    const qualities = item.stats?._qualities ?? {};
+    const statKeys = Object.keys(qualities);
+
+    if (statKeys.length === 0) {
+      return { score: 0, label: 'Poor', weightedAverage: 0, medianQuality: 0, stats: [] };
+    }
+
+    const statResults = statKeys.map((key, idx) => {
+      const qualityPct = qualities[key] ?? 0;
+      const quality = Math.min(Math.max(qualityPct / 100, 0), 1);
+      const weight = idx === 0
+        ? V9_CONFIG.qualityStatWeights.primary
+        : V9_CONFIG.qualityStatWeights.bonus;
+      const isMultiRoll = (item.prefixes ?? []).filter(p => p.type === key).length > 1;
+      return { stat: key, quality, weight, isMultiRoll };
+    });
+
+    const totalWeight = statResults.reduce((s, r) => s + r.weight, 0);
+    const weightedAverage = statResults.reduce((s, r) => s + r.quality * r.weight, 0) / totalWeight;
+
+    const sorted = [...statResults].map(r => r.quality).sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const medianQuality = sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+
+    const score = Math.round(
+      V9_CONFIG.qualityAverageWeight * weightedAverage * 100 +
+      V9_CONFIG.qualityMedianWeight  * medianQuality  * 100
+    );
+
+    return {
+      score,
+      label: _gearQualityLabel(score),
+      weightedAverage,
+      medianQuality,
+      stats: statResults,
+    };
+  }
+
+  function runV9ScoringTests() {
+    console.group('V9 Scoring Tests');
+    let passed = 0; let failed = 0;
+
+    function assert(label, actual, expected, tolerance) {
+      tolerance = tolerance ?? 0;
+      const ok = typeof expected === 'boolean'
+        ? actual === expected
+        : Math.abs(actual - expected) <= tolerance;
+      if (ok) { console.log(`✓ ${label}`); passed++; }
+      else     { console.error(`✗ ${label}: expected ${expected}, got ${actual}`); failed++; }
+    }
+    function assertEq(label, actual, expected) {
+      if (actual === expected) { console.log(`✓ ${label}`); passed++; }
+      else { console.error(`✗ ${label}: expected "${expected}", got "${actual}"`); failed++; }
+    }
+
+    // --- computeGearQuality ---
+    console.group('computeGearQuality');
+
+    // Sovereign Grips: ATK=92%, Crit%=38%
+    const sovereignGrips = {
+      stats: { atk: 19, critChance: 2.3, _qualities: { atk: 92, critChance: 38 } },
+      prefixes: [],
+    };
+    const gqSovereign = computeGearQuality(sovereignGrips);
+    // weightedAvg = (0.92×1.25 + 0.38×1.00) / 2.25 = 1.53/2.25 = 0.6800
+    // median = (0.38+0.92)/2 = 0.65
+    // score = round(0.70×68.0 + 0.30×65.0) = round(47.6+19.5) = 67
+    assert('Sovereign Grips score ≈ 67', gqSovereign.score, 67, 1);
+    assertEq('Sovereign Grips label', gqSovereign.label, 'Usable');
+
+    // Immortal Gauntlets: ATK=96%, AllStats=84%
+    const immortalGauntlets = {
+      stats: { atk: 23, allStats: 2.0, _qualities: { atk: 96, allStats: 84 } },
+      prefixes: [],
+    };
+    const gqImmortal = computeGearQuality(immortalGauntlets);
+    // weightedAvg = (0.96×1.25 + 0.84×1.00) / 2.25 = 2.04/2.25 = 0.9067
+    // median = (0.84+0.96)/2 = 0.90
+    // score = round(0.70×90.67 + 0.30×90.0) = round(63.47+27.0) = 90
+    assert('Immortal Gauntlets score ≈ 90', gqImmortal.score, 90, 2);
+    assertEq('Immortal Gauntlets label', gqImmortal.label, 'Excellent');
+
+    // Empty item (no qualities)
+    const emptyItem = { stats: { _qualities: {} }, prefixes: [] };
+    const gqEmpty = computeGearQuality(emptyItem);
+    assert('Empty item score = 0', gqEmpty.score, 0);
+    assertEq('Empty item label', gqEmpty.label, 'Poor');
+
+    // Perfect item: both stats at 100%
+    const perfectItem = {
+      stats: { atk: 30, critChance: 5.0, _qualities: { atk: 100, critChance: 100 } },
+      prefixes: [],
+    };
+    const gqPerfect = computeGearQuality(perfectItem);
+    assert('Perfect item score = 100', gqPerfect.score, 100, 0);
+    assertEq('Perfect item label', gqPerfect.label, 'Perfect');
+
+    console.groupEnd();
+    console.log(`\nTotal: ${passed} passed, ${failed} failed`);
+    console.groupEnd();
   }
 
   function _buildBagItem(item, equippedMap, filterKeyOverride = null) {
