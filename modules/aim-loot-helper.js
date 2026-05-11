@@ -1893,7 +1893,7 @@
 
   function computeBuildFit(item, fc, eligibleStats = null) {
     const itemStatKeys = new Set(Object.keys(item.stats ?? {}).filter(k => k !== '_qualities'));
-    const isEligible = key => !eligibleStats || eligibleStats.includes(key);
+    const isEligible = key => !eligibleStats || eligibleStats.has(key);
 
     // fc.preferredStats = must-have tier; fc.stats = preferred tier
     const mustHave    = [...(fc.preferredStats ?? [])].filter(isEligible);
