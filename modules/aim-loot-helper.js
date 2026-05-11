@@ -1825,9 +1825,124 @@
     assert('Perfect item score = 100', gqPerfect.score, 100, 0);
     assertEq('Perfect item label', gqPerfect.label, 'Perfect');
 
-    console.groupEnd();
+    console.groupEnd(); // computeGearQuality
+
+    // --- computeBuildFit ---
+    console.group('computeBuildFit');
+
+    const bowFilter = {
+      preferredStats: new Set(['atk']),
+      stats: new Set(['atkSpeed', 'critChance']),
+      optional: new Set(['allStats']),
+      avoid: new Set(),
+    };
+
+    // Test 1: Sovereign Grips — ATK ✓, Crit% ✓, AtkSpeed ✗, AllStats ✗
+    const sgItem = {
+      stats: { atk: 19, critChance: 2.3, _qualities: { atk: 92, critChance: 38 } },
+      prefixes: [],
+    };
+    const bfSovereign = computeBuildFit(sgItem, bowFilter);
+    // Coverage: 60×(1/1) + 25×(1/2) + 10×(0/1) + 5×(0/2) = 60+12.5+0+0 = 72.5
+    // SlotEff: 2 useful (atk+crit) / 2 total slots × 15 = 15
+    // Score = round(clamp(72.5+15, 0, 100)) = 88
+    assert('Sovereign Grips BuildFit ≈ 88', bfSovereign.score, 88, 1);
+    assertEq('Sovereign Grips fit label', bfSovereign.label, 'Strong Fit');
+    assert('mustHavePresent = 1', bfSovereign.mustHavePresent, 1);
+    assert('preferredPresent = 1', bfSovereign.preferredPresent, 1);
+
+    // Test 2: Immortal Gauntlets — ATK ✓, Crit% ✗, AtkSpeed ✗, AllStats ✓
+    const igItem = {
+      stats: { atk: 23, allStats: 2.0, _qualities: { atk: 96, allStats: 84 } },
+      prefixes: [],
+    };
+    const bfImmortal = computeBuildFit(igItem, bowFilter);
+    // Coverage: 60×(1/1) + 25×(0/2) + 10×(1/1) + 5×(0/2) = 60+0+10+0 = 70
+    // SlotEff: 2 useful / 2 slots × 15 = 15
+    // Score = round(clamp(70+15, 0, 100)) = 85
+    assert('Immortal Gauntlets BuildFit ≈ 85', bfImmortal.score, 85, 1);
+    assertEq('Immortal Gauntlets fit label', bfImmortal.label, 'Strong Fit');
+    assert('preferredPresent = 0', bfImmortal.preferredPresent, 0);
+
+    // Test 3: Off-build — only DEF stat (neutral, not in filter)
+    const offBuildItem = {
+      stats: { def: 50, _qualities: { def: 90 } },
+      prefixes: [],
+    };
+    const bfOff = computeBuildFit(offBuildItem, bowFilter);
+    // Coverage: mustHave=0, preferred=0, optional=0, neutral: 1 neutral-useful / 1 slot × 5 = 5
+    // SlotEff: 0 useful desired / 1 slot × 15 = 0
+    // Score = round(clamp(5, 0, 100)) = 5
+    assert('Off-build BuildFit ≤ 10', bfOff.score, 5, 5);
+    assertEq('Off-build label', bfOff.label, 'Off-build');
+
+    console.groupEnd(); // computeBuildFit
+
     console.log(`\nTotal: ${passed} passed, ${failed} failed`);
-    console.groupEnd();
+    console.groupEnd(); // V9 Scoring Tests
+  }
+
+  function _buildFitLabel(score) {
+    const t = V9_CONFIG.tiers.fit;
+    if (score >= t.perfect)  return 'Perfect Fit';
+    if (score >= t.strong)   return 'Strong Fit';
+    if (score >= t.partial)  return 'Partial Fit';
+    if (score >= t.weak)     return 'Weak Fit';
+    return 'Off-build';
+  }
+
+  function computeBuildFit(item, fc, eligibleStats = null) {
+    const itemStatKeys = new Set(Object.keys(item.stats ?? {}).filter(k => k !== '_qualities'));
+    const isEligible = key => !eligibleStats || eligibleStats.includes(key);
+
+    // fc.preferredStats = must-have tier; fc.stats = preferred tier
+    const mustHave    = [...(fc.preferredStats ?? [])].filter(isEligible);
+    const mustPresent = mustHave.filter(k => itemStatKeys.has(k));
+
+    const preferred   = [...(fc.stats ?? [])].filter(isEligible);
+    const prefPresent = preferred.filter(k => itemStatKeys.has(k));
+
+    const optional    = [...(fc.optional ?? [])].filter(isEligible);
+    const optPresent  = optional.filter(k => itemStatKeys.has(k));
+
+    const avoided      = [...(fc.avoid ?? [])];
+    const avoidPresent = avoided.filter(k => itemStatKeys.has(k));
+
+    const filterKeys = new Set([...mustHave, ...preferred, ...optional, ...avoided]);
+    const neutralUseful = [...itemStatKeys].filter(k => !filterKeys.has(k) && (item.stats[k] ?? 0) > 0);
+
+    const totalSlots    = itemStatKeys.size;
+    const usefulDesired = mustPresent.length + prefPresent.length + optPresent.length;
+
+    const cw = V9_CONFIG.coverageWeights;
+    const coverageScore =
+      (mustHave.length  > 0 ? cw.mustHave  * (mustPresent.length / mustHave.length)  : 0) +
+      (preferred.length > 0 ? cw.preferred * (prefPresent.length / preferred.length) : 0) +
+      (optional.length  > 0 ? cw.optional  * (optPresent.length  / optional.length)  : 0) +
+      (totalSlots       > 0 ? cw.neutral   * (neutralUseful.length / totalSlots)      : 0);
+
+    const slotEfficiency      = totalSlots > 0 ? usefulDesired / totalSlots : 0;
+    const slotEfficiencyScore = V9_CONFIG.slotEfficiencyMax * slotEfficiency;
+
+    const avoidPenalty = totalSlots > 0
+      ? -V9_CONFIG.avoidPenaltyPerStat * (avoidPresent.length / totalSlots)
+      : 0;
+
+    const raw   = coverageScore + slotEfficiencyScore + avoidPenalty;
+    const score = Math.round(Math.min(Math.max(raw, 0), 100));
+
+    return {
+      score,
+      label: _buildFitLabel(score),
+      mustHavePresent:   mustPresent.length,
+      mustHaveEligible:  mustHave.length,
+      preferredPresent:  prefPresent.length,
+      preferredEligible: preferred.length,
+      optionalPresent:   optPresent.length,
+      optionalEligible:  optional.length,
+      slotEfficiency,
+      avoidStatsPresent: avoidPresent,
+    };
   }
 
   function _buildBagItem(item, equippedMap, filterKeyOverride = null) {
