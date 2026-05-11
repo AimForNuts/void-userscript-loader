@@ -1790,11 +1790,11 @@
     if (multiRollCount >= 1) {
       if (multiRollCount === 1 || mrMedianQuality >= 0.75) {
         if (cat === "sal") {
-          rec = { label:"🎲 Good", cls:"rec-good" }; cat = "good";
+          rec = { label:"🎲 Good", cls:"rec-good", qualityCapReason: rec.qualityCapReason ?? null }; cat = "good";
         }
       } else {
         if (cat === "sal") {
-          rec = { label:"👍 Good", cls:"rec-good" }; cat = "good";
+          rec = { label:"👍 Good", cls:"rec-good", qualityCapReason: rec.qualityCapReason ?? null }; cat = "good";
         }
         mrInteresting = true;
       }
@@ -1802,7 +1802,7 @@
 
     // Preferred stat + any multi-roll → always at least Good (overrides "interesting")
     if (activePrefMR && cat === "sal") {
-      rec = { label:"👍 Good", cls:"rec-good" }; cat = "good";
+      rec = { label:"👍 Good", cls:"rec-good", qualityCapReason: rec.qualityCapReason ?? null }; cat = "good";
       mrInteresting = false;
     }
 
@@ -1812,7 +1812,7 @@
       const filterStatsOnItem = [...activeFC.stats, ...activeFC.preferredStats].filter(s => itemStatKeys.has(s));
       if (filterStatsOnItem.length > 0 && filterStatsOnItem.every(s => diffs.some(d => d.stat === s && d.isUp))) {
         if (cat === "sal") {
-          rec = { label:"👍 Good", cls:"rec-good" }; cat = "good";
+          rec = { label:"👍 Good", cls:"rec-good", qualityCapReason: rec.qualityCapReason ?? null }; cat = "good";
           mrInteresting = false;
         }
       }
@@ -1832,7 +1832,7 @@
       }
     }
     if (classRestricted) {
-      rec = { label:"💾 Salvage", cls:"rec-sal" }; cat = "sal";
+      rec = { label:"💾 Salvage", cls:"rec-sal", qualityCapReason: rec.qualityCapReason ?? null }; cat = "sal";
     }
 
     return {
@@ -2487,7 +2487,7 @@
         <span class="sg-badge ${rec.cls}" style="font-size:9px;">${esc(rec.label)}</span>
         <span class="sg-debug-score" style="color:${bd.finalScore>=0?"#4ade80":"#f87171"};font-weight:700;">${bd.finalScore.toFixed(1)}</span>
       </div>
-      ${item.rawRec && item.rawRec.label !== rec.label ? `<div class="debug-cap-warning">Score verdict: ${esc(item.rawRec.label)} → overridden to: ${esc(rec.label)}</div>` : ""}
+      ${rec.qualityCapReason ? `<div class="debug-cap-warning">Score verdict: ${esc(item.rawRec?.label ?? '?')} → overridden to: ${esc(rec.label)}</div>` : ""}
       ${rec.qualityCapReason ? `<div class="debug-cap-warning">⚠ Reason: ${esc(rec.qualityCapReason)}</div>` : ""}`;
 
       if (isOpen) {
