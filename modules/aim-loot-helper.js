@@ -2037,8 +2037,8 @@
     if (score >= t.upgrade)        return 'Upgrade';
     if (score >= t.minor)          return 'Minor Upgrade';
     if (score >= t.sidegradeMin)   return 'Sidegrade';
-    if (score >= t.minorDowngrade) return 'Minor Downgrade';
-    return 'Downgrade';
+    if (score > t.downgrade) return 'Minor Downgrade'; // > -25, so covers -24 to -10
+    return 'Downgrade';                                 // <= -25
   }
 
   function computeUpgradeScore(ownBaseStats, eqBaseStats, fc, rollQualities, eligibleStats = null) {
