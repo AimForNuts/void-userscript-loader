@@ -361,7 +361,7 @@
     },
 
     // Migration flag
-    SCORING_MODEL: 'legacy',
+    SCORING_MODEL: 'v9',
   };
 
   /**************************************************************************
@@ -2187,6 +2187,27 @@
     return { primary, overlay, summary };
   }
 
+  // Map v9 upgrade score to existing legacy `cls` strings used by render functions
+  // (the legacy CSS only defines rec-bis / rec-top / rec-good / rec-sal — no rec-neutral)
+  function _v9RecClass(score) {
+    const t = V9_CONFIG.tiers.upgrade;
+    if (score >= t.major)        return 'rec-bis';
+    if (score >= t.upgrade)      return 'rec-top';
+    if (score >= t.minor)        return 'rec-good';
+    if (score >= t.sidegradeMin) return 'rec-sal';
+    return 'rec-sal';
+  }
+
+  // Map v9 upgrade score to the legacy `cat` keys that the UI groups items by
+  // (CATEGORIES is fixed: bis / top / good / sal — anything else would break grouping)
+  function _v9Cat(score) {
+    const t = V9_CONFIG.tiers.upgrade;
+    if (score >= t.major)        return 'bis';
+    if (score >= t.upgrade)      return 'top';
+    if (score >= t.minor)        return 'good';
+    return 'sal';
+  }
+
   function _buildBagItem(item, equippedMap, filterKeyOverride = null) {
     const slotType   = ITEM_TYPE_TO_SLOT[item.type] ?? item.type;
     const rarity     = item.rarity.toUpperCase();
@@ -2342,6 +2363,19 @@
       eligibleStats
     );
     const v9Recommendation = computeRecommendation(v9GearQuality, v9BuildFit, v9Upgrade);
+
+    // v9 primary verdict: when enabled, replace legacy `rec` with one derived from the v9 upgrade score.
+    // `cat` is mapped onto the existing bis/top/good/sal keys so all downstream UI (grouping, highlights,
+    // CATEGORIES iteration, team-send filtering) keeps working unchanged.
+    if (V9_CONFIG.SCORING_MODEL === 'v9' && v9Upgrade) {
+      const v9Label = v9Recommendation.overlay ?? v9Recommendation.primary;
+      rec = {
+        label: v9Label,
+        cls: _v9RecClass(v9Upgrade.score),
+        qualityCapReason: null, // no post-hoc caps in v9
+      };
+      cat = _v9Cat(v9Upgrade.score);
+    }
 
     // Class usability restriction — unusable item types are capped at Good regardless
     let classRestricted = false;
@@ -3033,6 +3067,11 @@
         html += `<div class="debug-v9-row"><b>Upgrade:</b> ${up.label}&nbsp;&nbsp;${up.score >= 0 ? '+' : ''}${up.score}</div>`;
         html += `<div class="debug-v9-row"><b>Quality:</b> ${gq.score}/100 — ${gq.label}</div>`;
         html += `<div class="debug-v9-row"><b>Fit:</b> ${bf.score}/100 — ${bf.label}</div>`;
+        // Active-filter legacy score (matches the value shown in the header). Best-other-filter
+        // score (`bestFilterScore`) is -Infinity when no other filter qualifies, so we use
+        // `prefScore` here — that's the legacy score for the currently active filter.
+        const legacyScore = typeof item.prefScore === 'number' ? item.prefScore : (typeof item.bestFilterScore === 'number' && isFinite(item.bestFilterScore) ? item.bestFilterScore : null);
+        html += `<div class="debug-v9-row" style="color:#555">Legacy score: ${legacyScore != null ? legacyScore.toFixed(1) : '—'}</div>`;
         if (rec9 && rec9.overlay) {
           html += `<div class="debug-v9-row"><b>Overlay:</b> ${rec9.overlay}</div>`;
         }
