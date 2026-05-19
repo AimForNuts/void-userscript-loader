@@ -1392,7 +1392,7 @@
    * LOOT LOGIC
    **************************************************************************/
 
-  function calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys, eligibleStats = null) {
+  function calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys, eligibleStats = null, hasEnlightened = false) {
     const cfg = SCORE_CONFIG;
 
     function isEligible(stat) { return eligibleStats == null || eligibleStats.has(stat); }
@@ -1425,6 +1425,12 @@
         mustHavePowerScore += power;
         reasons.push({ stat, tier:"mustHave", type:"present", candVal, curVal: eqBaseStats[stat] ?? 0, delta, contribution: cfg.mustHavePresentBonus + power });
       }
+    }
+
+    if (fc.requireEnlightened && !hasEnlightened) {
+      mustHaveCoverageScore += cfg.mustHaveMissingPenalty;
+      mustHaveMissingCount++;
+      reasons.push({ stat: "enlightened", tier: "mustHave", type: "missing", contribution: cfg.mustHaveMissingPenalty });
     }
 
     // Preferred power (fc.stats = "preferred" tier)
@@ -1967,6 +1973,31 @@
     const savedOld = { stats:["atk"], enabled:true, multiBonus:{}, preferredStats:[], optional:[], avoid:[] };
     const loadedOld = mkFC(savedOld.stats, savedOld.enabled !== false, savedOld.multiBonus ?? {}, savedOld.preferredStats ?? [], savedOld.optional ?? [], savedOld.avoid ?? [], savedOld.requireEnlightened ?? false);
     assert('old saved filters default requireEnlightened to false', loadedOld.requireEnlightened, false);
+
+    console.groupEnd();
+    console.group('calcFilterScore — requireEnlightened');
+
+    const enlFC = mkFC([], true, {}, ["atk"], [], [], true); // requireEnlightened ON
+    const baseStats   = { atk: 20 };
+    const equippedStats = { atk: 15 };
+    const statKeys    = new Set(["atk"]);
+
+    // Item without Enlightened → mustHaveMissingCount includes enlightened penalty
+    const bdNoEnl = calcFilterScore(baseStats, equippedStats, enlFC, 0, statKeys, null, false);
+    assert('no-enl: mustHaveMissingCount includes enlightened', bdNoEnl.mustHaveMissingCount, 1);
+    assert('no-enl: reasons includes enlightened missing', bdNoEnl.reasons.some(r => r.stat === 'enlightened' && r.type === 'missing'), true);
+
+    // Item with Enlightened → no extra penalty
+    const fcOff = mkFC([], true, {}, ["atk"], [], [], false);
+    const bdEnl  = calcFilterScore(baseStats, equippedStats, enlFC, 0, statKeys, null, true);
+    const bdOff  = calcFilterScore(baseStats, equippedStats, fcOff,  0, statKeys, null, false);
+    assert('with-enl: mustHaveMissingCount same as without flag', bdEnl.mustHaveMissingCount, bdOff.mustHaveMissingCount);
+    assert('with-enl: finalScore same as without flag', bdEnl.finalScore, bdOff.finalScore);
+
+    // requireEnlightened OFF → no penalty even without enlightened
+    const fcOff2 = mkFC([], true, {}, ["atk"], [], [], false);
+    const bdOff2 = calcFilterScore(baseStats, equippedStats, fcOff2, 0, statKeys, null, false);
+    assert('flag off: no penalty even without enlightened', bdOff2.mustHaveMissingCount, 0);
 
     console.groupEnd();
 
