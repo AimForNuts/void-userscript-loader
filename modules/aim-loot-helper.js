@@ -2436,6 +2436,11 @@
         qualityCapReason: null, // no post-hoc caps in v9
       };
       cat = _v9Cat(v9Upgrade.score);
+      // requireEnlightened must-have check applies in v9 too — cap BiS to Top when not met
+      if (activeBd?.mustHaveMissingCount > 0 && cat === 'bis') {
+        cat = 'top';
+        rec = { ...rec, cls: 'rec-top' };
+      }
     }
 
     // Class usability restriction — unusable item types are capped at Good regardless
@@ -3532,7 +3537,7 @@
 
     let html="", hasAny=false;
     for (const slot of GEAR_SLOT_ORDER) {
-      const items = bySlot[slot];
+      const items = bySlot[slot]?.filter(i => !state.highlightCats.size || state.highlightCats.has(i.cat));
       if (!items?.length) continue;
       hasAny = true;
       const eq      = state.equipped[slot] ?? state.equipped[slot+" 1"] ?? null;
@@ -3559,6 +3564,7 @@
 
     let html = "";
     for (const cat of CATEGORIES) {
+      if (state.highlightCats.size > 0 && !state.highlightCats.has(cat.key)) continue;
       const items   = bycat[cat.key];
       const defOpen = state.catOpen[cat.key] ?? (cat.key==="bis"||cat.key==="top"||cat.key==="good");
       html += `<div class="sg-cat-section" data-cat="${esc(cat.key)}">
