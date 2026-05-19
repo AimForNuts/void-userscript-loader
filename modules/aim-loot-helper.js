@@ -1995,8 +1995,7 @@
     assert('with-enl: finalScore same as without flag', bdEnl.finalScore, bdOff.finalScore);
 
     // requireEnlightened OFF → no penalty even without enlightened
-    const fcOff2 = mkFC([], true, {}, ["atk"], [], [], false);
-    const bdOff2 = calcFilterScore(baseStats, equippedStats, fcOff2, 0, statKeys, null, false);
+    const bdOff2 = calcFilterScore(baseStats, equippedStats, fcOff, 0, statKeys, null, false);
     assert('flag off: no penalty even without enlightened', bdOff2.mustHaveMissingCount, 0);
 
     console.groupEnd();
