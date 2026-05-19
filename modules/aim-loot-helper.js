@@ -3386,7 +3386,7 @@
       const isEditing = fe?.key === key;
       html += `<div class="sg-filter-row${isActive?" active":""}${fc.enabled?"":" disabled"}" data-fkey="${esc(key)}" title="${isActive?"Active filter — click another row to switch":"Click to set as active filter"}">
         <div class="sg-filter-dot"></div>
-        <span class="sg-filter-name">${esc(key)}</span>
+        <span class="sg-filter-name">${esc(key)}${fc.requireEnlightened ? ' <span title="Requires Enlightened prefix">✨</span>' : ""}</span>
         <button class="sg-icon-btn sg-toggle-btn${fc.enabled?"":" off"}" data-ftoggle="${esc(key)}" title="${fc.enabled?"Disable filter":"Enable filter"}">${fc.enabled?"●":"○"}</button>
         <button class="sg-icon-btn" data-dup="${esc(key)}" title="Duplicate as ${esc(key)}_Copy">⎘</button>
         <button class="sg-icon-btn" data-edit="${esc(key)}" title="Edit filter stats">✏</button>
