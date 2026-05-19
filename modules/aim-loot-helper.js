@@ -375,8 +375,8 @@
    * FILTER STORAGE
    **************************************************************************/
 
-  function mkFC(stats, enabled=true, multiBonus={}, preferredStats=[], optional=[], avoid=[]) {
-    return { stats: new Set(stats), enabled, multiBonus, preferredStats: new Set(preferredStats), optional: new Set(optional), avoid: new Set(avoid) };
+  function mkFC(stats, enabled=true, multiBonus={}, preferredStats=[], optional=[], avoid=[], requireEnlightened=false) {
+    return { stats: new Set(stats), enabled, multiBonus, preferredStats: new Set(preferredStats), optional: new Set(optional), avoid: new Set(avoid), requireEnlightened };
   }
 
   function loadFilters() {
@@ -389,7 +389,7 @@
             // migrate old format
             map.set(k, mkFC(v));
           } else if (v && typeof v === "object") {
-            map.set(k, mkFC(v.stats ?? [], v.enabled !== false, v.multiBonus ?? {}, v.preferredStats ?? [], v.optional ?? [], v.avoid ?? []));
+            map.set(k, mkFC(v.stats ?? [], v.enabled !== false, v.multiBonus ?? {}, v.preferredStats ?? [], v.optional ?? [], v.avoid ?? [], v.requireEnlightened ?? false));
           }
         }
         if (map.size > 0) return map;
@@ -407,7 +407,7 @@
   function saveFilters() {
     const out = {};
     for (const [k, fc] of state.filters) {
-      out[k] = { stats:[...fc.stats], enabled:fc.enabled, multiBonus:fc.multiBonus, preferredStats:[...fc.preferredStats], optional:[...(fc.optional ?? [])], avoid:[...(fc.avoid ?? [])] };
+      out[k] = { stats:[...fc.stats], enabled:fc.enabled, multiBonus:fc.multiBonus, preferredStats:[...fc.preferredStats], optional:[...(fc.optional ?? [])], avoid:[...(fc.avoid ?? [])], requireEnlightened: fc.requireEnlightened ?? false };
     }
     localStorage.setItem("aim_sgFilters", JSON.stringify(out));
   }
@@ -1949,6 +1949,24 @@
     const quLost  = {};
     const upLost  = computeUpgradeScore(ownLost, eqLost, upgradeBowFilter, quLost);
     assert('Lost must-have adjustment = -35', upLost.mustHaveAdjustment, -35, 0);
+
+    console.groupEnd();
+    console.group('requireEnlightened persistence');
+
+    const fcNoEnl = mkFC(["atk"], true, {}, [], [], [], false);
+    assert('requireEnlightened defaults false', fcNoEnl.requireEnlightened, false);
+
+    const fcWithEnl = mkFC(["atk"], true, {}, [], [], [], true);
+    assert('requireEnlightened set true', fcWithEnl.requireEnlightened, true);
+
+    // Round-trip: simulate save → load
+    const saved = { stats:["atk"], enabled:true, multiBonus:{}, preferredStats:[], optional:[], avoid:[], requireEnlightened:true };
+    const loaded = mkFC(saved.stats, saved.enabled !== false, saved.multiBonus ?? {}, saved.preferredStats ?? [], saved.optional ?? [], saved.avoid ?? [], saved.requireEnlightened ?? false);
+    assert('requireEnlightened survives round-trip', loaded.requireEnlightened, true);
+
+    const savedOld = { stats:["atk"], enabled:true, multiBonus:{}, preferredStats:[], optional:[], avoid:[] };
+    const loadedOld = mkFC(savedOld.stats, savedOld.enabled !== false, savedOld.multiBonus ?? {}, savedOld.preferredStats ?? [], savedOld.optional ?? [], savedOld.avoid ?? [], savedOld.requireEnlightened ?? false);
+    assert('old saved filters default requireEnlightened to false', loadedOld.requireEnlightened, false);
 
     console.groupEnd();
 
