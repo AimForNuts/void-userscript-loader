@@ -1107,7 +1107,7 @@
     const priorityUps   = diffs.filter(d => d.isUp && activeFC.stats.has(d.stat)).length;
     const hasPriorityMR = multiRollCount > 0 && [...itemStatKeys].some(s => activeFC.stats.has(s));
     const chatEligibleStats = eligibleStatsForItem({ slotType: slot, weaponSubType: typePart?.toLowerCase(), armorWeight });
-    const chatBd = calcFilterScore(ttStats, eqBaseStats, activeFC, multiRollCount, itemStatKeys, chatEligibleStats);
+    const chatBd = calcFilterScore(ttStats, eqBaseStats, activeFC, multiRollCount, itemStatKeys, chatEligibleStats, false);
     const score = chatBd.finalScore;
     let { rec, cat: chatCat } = applyQualityCap(
       recommendation(score, chatBd.mustHaveMissingCount),
@@ -2301,10 +2301,11 @@
       if (r1 && r2) {
         const fc = state.filters.get(filterKeyOverride ?? state.activeFilterKey) ?? mkFC([]);
         const ringEligibleStats = eligibleStatsForItem({ slotType, weaponSubType: item.type, armorWeight: item.armorWeight });
+        const hasEnl = (item.prefixes ?? []).some(p => p.type === "enlightened");
         const scoreVs = (eq) => {
           const eqS = {};
           for (const [k, v] of Object.entries(eq.stats)) { if (k !== "_qualities") eqS[normStatKey(k)] = v; }
-          return calcFilterScore(ownBaseStats, eqS, fc, 0, new Set(Object.keys(ownBaseStats)), ringEligibleStats).finalScore;
+          return calcFilterScore(ownBaseStats, eqS, fc, 0, new Set(Object.keys(ownBaseStats)), ringEligibleStats, hasEnl).finalScore;
         };
         equippedItem = scoreVs(r1) >= scoreVs(r2) ? r1 : r2;
       } else {
@@ -2344,8 +2345,9 @@
     const filterBreakdowns  = {};
     const filterHasPriorityMR = {};
     const filterHasPrefMR     = {};
+    const hasEnlightened = (item.prefixes ?? []).some(p => p.type === "enlightened");
     for (const [key, fc] of state.filters) {
-      const bd = calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys, eligibleStats);
+      const bd = calcFilterScore(ownBaseStats, eqBaseStats, fc, multiRollCount, itemStatKeys, eligibleStats, hasEnlightened);
       filterScores[key]         = bd.finalScore;
       filterBreakdowns[key]     = bd;
       filterHasPriorityMR[key]  = multiRollCount > 0 && [...itemStatKeys].some(s => fc.stats.has(s) || fc.preferredStats.has(s));
