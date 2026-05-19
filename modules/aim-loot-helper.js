@@ -3413,7 +3413,12 @@
           const val = fe.multiBonus[def.key] ?? 0;
           html += `<button class="sg-mb-chip${val>0?" active":""}" data-mbstat="${esc(def.key)}">${esc(def.label)}${val>0?" +"+val:""}</button>`;
         }
-        html += `</div></div>`;
+        html += `</div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="aimSgFeEnlightened"${fe.requireEnlightened ? " checked" : ""}>
+            <label for="aimSgFeEnlightened" style="font-size:11px;color:#cbd5e1;cursor:pointer;">✨ Require Enlightened prefix <span style="color:#64748b;">(items without it → Salvage)</span></label>
+          </div>
+        </div>`;
       }
     }
 
@@ -5149,6 +5154,10 @@
         state.filterEdit.optional       = new Set();
         state.filterEdit.avoid          = new Set();
         render();
+      });
+      document.getElementById("aimSgFeEnlightened")?.addEventListener("change", (e) => {
+        if (!state.filterEdit) return;
+        state.filterEdit.requireEnlightened = e.target.checked;
       });
       body.querySelectorAll("[data-estat]").forEach((btn) => {
         btn.addEventListener("click", () => {
