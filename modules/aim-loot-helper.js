@@ -5101,7 +5101,7 @@
           e.stopPropagation();
           const key = btn.dataset.edit;
           const fc  = state.filters.get(key);
-          state.filterEdit = { key, name:key, stats:new Set(fc?.stats), preferredStats:new Set(fc?.preferredStats), multiBonus:{...fc?.multiBonus}, optional:new Set(fc?.optional ?? []), avoid:new Set(fc?.avoid ?? []) };
+          state.filterEdit = { key, name:key, stats:new Set(fc?.stats), preferredStats:new Set(fc?.preferredStats), multiBonus:{...fc?.multiBonus}, optional:new Set(fc?.optional ?? []), avoid:new Set(fc?.avoid ?? []), requireEnlightened: fc?.requireEnlightened ?? false };
           render();
         });
       });
@@ -5123,7 +5123,7 @@
           const key   = btn.dataset.dup;
           const fc    = state.filters.get(key); if (!fc) return;
           const copy  = key + "_Copy";
-          state.filters.set(copy, mkFC([...fc.stats], fc.enabled, {...fc.multiBonus}, [...fc.preferredStats], [...(fc.optional ?? [])], [...(fc.avoid ?? [])]));
+          state.filters.set(copy, mkFC([...fc.stats], fc.enabled, {...fc.multiBonus}, [...fc.preferredStats], [...(fc.optional ?? [])], [...(fc.avoid ?? [])], fc.requireEnlightened ?? false));
           saveFilters(); render();
         });
       });
@@ -5132,7 +5132,7 @@
         const newName = (document.getElementById("aimSgFeName")?.value||fe.key).trim();
         const oldFC   = state.filters.get(fe.key);
         if (newName!==fe.key) state.filters.delete(fe.key);
-        state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus, [...(fe.preferredStats ?? [])], [...(fe.optional ?? [])], [...(fe.avoid ?? [])]));
+        state.filters.set(newName, mkFC([...fe.stats], oldFC?.enabled ?? true, fe.multiBonus, [...(fe.preferredStats ?? [])], [...(fe.optional ?? [])], [...(fe.avoid ?? [])], fe.requireEnlightened ?? false));
         if (state.activeFilterKey===fe.key) {
           state.activeFilterKey = newName;
           localStorage.setItem("aim_sgActiveFilter", newName);
@@ -5191,7 +5191,7 @@
       document.getElementById("aimSgFeAdd")?.addEventListener("click", () => {
         const name = `Filter ${state.filters.size+1}`;
         state.filters.set(name, mkFC([]));
-        state.filterEdit = { key:name, name, stats:new Set(), preferredStats:new Set(), multiBonus:{}, optional:new Set(), avoid:new Set() };
+        state.filterEdit = { key:name, name, stats:new Set(), preferredStats:new Set(), multiBonus:{}, optional:new Set(), avoid:new Set(), requireEnlightened: false };
         saveFilters(); render();
       });
     }
