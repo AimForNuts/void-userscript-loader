@@ -29,6 +29,41 @@
       return 'at ' + eta.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     }
 
+    // Find the .gv-skill-header whose .gv-skill-name matches the skill name (case-insensitive)
+    function findSkillHeader(skillName) {
+      const headers = document.querySelectorAll('.gv-skill-header');
+      for (const header of headers) {
+        const nameEl = header.querySelector('.gv-skill-name');
+        if (nameEl && nameEl.textContent.trim().toLowerCase() === skillName.toLowerCase()) {
+          return header;
+        }
+      }
+      return null;
+    }
+
+    // Get (or create and insert) the TTL span inside a header
+    function getOrCreateSpan(header) {
+      let span = header.querySelector('.gv-ttl-inline');
+      if (!span) {
+        const xphrEl = header.querySelector('.gv-xphr-inline');
+        span = document.createElement('span');
+        span.className = 'gv-ttl-inline';
+        span.style.cssText = 'font-size:inherit;color:#aaa;margin-left:8px;';
+        if (xphrEl) {
+          xphrEl.insertAdjacentElement('afterend', span);
+        } else {
+          header.appendChild(span);
+        }
+      }
+      return span;
+    }
+
+    // Remove TTL span from a header if present
+    function removeSpan(header) {
+      const span = header && header.querySelector('.gv-ttl-inline');
+      if (span) span.remove();
+    }
+
     return {
       ...definition,
       init(_app) {},
