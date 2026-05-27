@@ -44,3 +44,5 @@ Add an entry to `manifest.json` pointing to any hosted `.js` file.
 **🗓️ Party Planner** — The main gather coordination module. Covers inventory scanning, party composition tools, a rune planner, tool planner, and crafting debug output.
 
 **🔍 Party Planner Debug** — Extended version of Party Planner with spirit essence tracing and additional debug output. Intended for development and diagnosing gather-side issues.
+
+**⛏ Lifeskill Tracker** — Displays time to next level and estimated completion time (ETA) directly in the active skill header. Updates on each gather tick for real-time progress tracking.

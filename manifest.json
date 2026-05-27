@@ -138,6 +138,18 @@
       "category": "gather",
       "enabled": true,
       "dependencies": ["core"]
+    },
+    {
+      "id": "lifeskill-tracker",
+      "name": "Lifeskill Tracker",
+      "icon": "⛏",
+      "description": "Shows time to next level and ETA in the active skill header, updated each gather tick.",
+      "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/lifeskill-tracker.js",
+      "version": "2026-05-27.1",
+      "integrity": "sha256-p/M25mrxRjZ4btkznC3ErrLtZ8vPe20xP1Vv9CI+7Rw=",
+      "category": "gather",
+      "enabled": true,
+      "dependencies": ["core"]
     }
   ]
 }

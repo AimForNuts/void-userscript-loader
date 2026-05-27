@@ -91,3 +91,10 @@ The primary gather coordination tool. Tabs cover inventory scanning, party slot 
 **ID:** `party-planner-debug` | **Category:** Gather | **File:** `modules/party-planner-debug.js`
 
 Extended version of Party Planner with spirit essence tracing and verbose debug panels. Intended for diagnosing gather-side issues and developing new Party Planner features before promoting them to the stable module. Not intended for regular use — leave it disabled in the manifest for production.
+
+---
+
+### ⛏ Lifeskill Tracker
+**ID:** `lifeskill-tracker` | **Category:** Gather | **File:** `modules/lifeskill-tracker.js`
+
+Real-time lifeskill progress monitor. Displays time to next level and estimated completion time (ETA) in the active skill header, updated on every gather tick. Provides at-a-glance progress visibility without opening additional UI panels.
