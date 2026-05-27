@@ -4,6 +4,7 @@
   function createLifeskillTrackerModule(definition) {
     const state = {
       stopTimer: null,
+      unsub: null,
     };
 
     // Format milliseconds as "001d 04h 25m 35s"
@@ -67,7 +68,7 @@
     return {
       ...definition,
       init(app) {
-        app.events.on('socket:any', (msg) => {
+        state.unsub = app.events.on('socket:any', (msg) => {
           if (msg.type !== 'gatherTick') return;
 
           const { skill, skillXp, skillXpToNext, xpGain, tickMs } = msg;
@@ -95,10 +96,9 @@
         });
       },
       destroy() {
-        if (state.stopTimer) {
-          clearTimeout(state.stopTimer);
-          state.stopTimer = null;
-        }
+        if (state.unsub) { state.unsub(); state.unsub = null; }
+        if (state.stopTimer) { clearTimeout(state.stopTimer); state.stopTimer = null; }
+        document.querySelectorAll('.gv-ttl-inline').forEach(el => el.remove());
       },
     };
   }
