@@ -5,6 +5,9 @@
     const state = {
       stopTimer: null,
       unsub: null,
+      lastTickAt: null,
+      lastSkillXp: null,
+      lastSkill: null,
     };
 
     // Format milliseconds as "001d 04h 25m 35s"
@@ -71,12 +74,32 @@
         state.unsub = app.events.on('socket:any', (msg) => {
           if (msg.type !== 'gatherTick') return;
 
-          const { skill, skillXp, skillXpToNext, xpGain, tickMs } = msg;
+          const { skill, skillXp, skillXpToNext, tickMs } = msg;
+          const now = Date.now();
 
-          // Skip ticks with no XP gain (avoids division by zero)
-          if (!xpGain || !tickMs) return;
+          // Compute rate from real elapsed time between consecutive ticks
+          // (avoids ticksProcessed batching confusion with xpGain/tickMs)
+          let xpPerMs = null;
+          if (
+            state.lastSkill === skill &&
+            state.lastTickAt !== null &&
+            state.lastSkillXp !== null
+          ) {
+            const elapsed = now - state.lastTickAt;
+            const gained = skillXp - state.lastSkillXp;
+            if (elapsed > 0 && gained > 0) {
+              xpPerMs = gained / elapsed;
+            }
+          }
 
-          const xpPerMs = xpGain / tickMs;
+          // Update tracking state
+          state.lastSkill = skill;
+          state.lastTickAt = now;
+          state.lastSkillXp = skillXp;
+
+          // Need at least two ticks to compute a rate
+          if (xpPerMs === null) return;
+
           const xpRemaining = skillXpToNext - skillXp;
           const msRemaining = xpRemaining / xpPerMs;
 
@@ -86,18 +109,25 @@
             span.textContent = `→ ${formatTTL(msRemaining)}  ${formatETA(msRemaining)}`;
           }
 
-          // Reset stop-detection timer: remove span if no tick arrives within 2.5× tickMs
+          // Reset stop-detection timer; fall back to 15s if tickMs unavailable
+          const stopDelay = (tickMs || 5000) * 2.5;
           if (state.stopTimer) clearTimeout(state.stopTimer);
           state.stopTimer = setTimeout(() => {
             const h = findSkillHeader(skill);
             removeSpan(h);
             state.stopTimer = null;
-          }, tickMs * 2.5);
+            state.lastTickAt = null;
+            state.lastSkillXp = null;
+            state.lastSkill = null;
+          }, stopDelay);
         });
       },
       destroy() {
         if (state.unsub) { state.unsub(); state.unsub = null; }
         if (state.stopTimer) { clearTimeout(state.stopTimer); state.stopTimer = null; }
+        state.lastTickAt = null;
+        state.lastSkillXp = null;
+        state.lastSkill = null;
         document.querySelectorAll('.gv-ttl-inline').forEach(el => el.remove());
       },
     };
