@@ -66,7 +66,34 @@
 
     return {
       ...definition,
-      init(_app) {},
+      init(app) {
+        app.events.on('socket:any', (msg) => {
+          if (msg.type !== 'gatherTick') return;
+
+          const { skill, skillXp, skillXpToNext, xpGain, tickMs } = msg;
+
+          // Skip ticks with no XP gain (avoids division by zero)
+          if (!xpGain || !tickMs) return;
+
+          const xpPerMs = xpGain / tickMs;
+          const xpRemaining = skillXpToNext - skillXp;
+          const msRemaining = xpRemaining / xpPerMs;
+
+          const header = findSkillHeader(skill);
+          if (header) {
+            const span = getOrCreateSpan(header);
+            span.textContent = `→ ${formatTTL(msRemaining)}  ${formatETA(msRemaining)}`;
+          }
+
+          // Reset stop-detection timer: remove span if no tick arrives within 2.5× tickMs
+          if (state.stopTimer) clearTimeout(state.stopTimer);
+          state.stopTimer = setTimeout(() => {
+            const h = findSkillHeader(skill);
+            removeSpan(h);
+            state.stopTimer = null;
+          }, tickMs * 2.5);
+        });
+      },
       destroy() {
         if (state.stopTimer) {
           clearTimeout(state.stopTimer);
