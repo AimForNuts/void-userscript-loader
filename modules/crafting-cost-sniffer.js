@@ -2,6 +2,8 @@
   'use strict';
 
   function createCraftingCostSnifferModule(definition) {
+    let _scanCancelled = false;
+
     const state = {
       results: [],
       scanning: false,
@@ -87,14 +89,12 @@
     function attachEvents(app) {
       const panel = app.ui.getPanel(definition.id);
       if (!panel) return;
-      const body = panel.querySelector('.vim-body');
-      if (!body) return;
 
-      body.querySelector('[data-ccs-scan]')?.addEventListener('click', () => {
+      panel.querySelector('[data-ccs-scan]')?.addEventListener('click', () => {
         if (!state.scanning) runScan(app);
       });
 
-      body.querySelector('[data-ccs-copy]')?.addEventListener('click', async () => {
+      panel.querySelector('[data-ccs-copy]')?.addEventListener('click', async () => {
         const text = JSON.stringify(state.results, null, 2);
         try {
           await navigator.clipboard.writeText(text);
@@ -123,6 +123,7 @@
     }
 
     async function runScan(app) {
+      _scanCancelled = false;
       state.scanning = true;
       state.results = [];
       state.error = null;
@@ -142,6 +143,8 @@
       renderIntoPanel(app);
 
       for (const card of cards) {
+        if (_scanCancelled) break;
+
         const name = card.querySelector('.cv-recipe-card-name')?.textContent.trim() || '';
         const lockText = card.querySelector('.cv-recipe-card-lock')?.textContent.trim() || '';
         const levelRequired = parseInt(lockText.replace(/lv\s*/i, ''), 10) || 0;
@@ -172,9 +175,11 @@
           render: () => render(),
           footer: '',
         });
+        renderIntoPanel(app);
       },
 
       destroy() {
+        _scanCancelled = true;
         state.results = [];
         state.scanning = false;
         state.error = null;
