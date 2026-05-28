@@ -34,6 +34,13 @@ Intercepts the game's own `/api/guild` HTTP response (no extra network request) 
 
 ---
 
+### 🔬 Crafting Cost Sniffer
+**ID:** `crafting-cost-sniffer` | **Category:** Misc | **File:** `modules/crafting-cost-sniffer.js`
+
+Scans the game's crafting UI for Skilling Gear recipes by auto-clicking each `.cv-recipe-card` within the "Skilling Gear" `.cv-subcat`, waiting 150ms per card for the inline `.cv-detail` panel to update, then reading material names and quantities. Results are stored in module state as an array of `{ name, levelRequired, materials[] }` objects and rendered as pretty-printed JSON in a floating panel. A "Copy JSON" button writes the full array to the clipboard. Progress is shown live during the scan. The scan is user-triggered — the crafting page must be open and the Skilling Gear subcategory visible before clicking Scan.
+
+---
+
 ## Fighter
 
 ### ◈ Rune Planner
