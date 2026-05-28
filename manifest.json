@@ -56,6 +56,18 @@
       "dependencies": ["core"]
     },
     {
+      "id": "crafting-cost-sniffer",
+      "name": "Crafting Cost Sniffer",
+      "icon": "🔬",
+      "description": "Scans Skilling Gear crafting recipes and captures material costs as JSON.",
+      "url": "https://raw.githubusercontent.com/AimForNuts/void-userscript-loader/main/modules/crafting-cost-sniffer.js",
+      "version": "2026-05-28.1",
+      "integrity": "sha256-d4saRHxrRR7+KcfeX0S1ITP1lUpdZYKvvh+4X7P7iZU=",
+      "category": "misc",
+      "enabled": true,
+      "dependencies": ["core"]
+    },
+    {
       "id": "rune-planner",
       "name": "Rune Planner",
       "icon": "◈",
