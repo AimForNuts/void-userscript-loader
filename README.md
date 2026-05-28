@@ -25,6 +25,8 @@ Add an entry to `manifest.json` pointing to any hosted `.js` file.
 
 **🏛 Guild Helper** — Intercepts the guild API response and injects a badge showing vault gold vs next level cost, with a ready-to-level indicator when the server reports the level is claimable.
 
+**🔬 Crafting Cost Sniffer** — Scans every recipe under Skilling Gear in the crafting UI, clicking through each card to capture material requirements, and displays the full cost breakdown as copyable JSON.
+
 ### Fighter
 
 **◈ Rune Planner** — Plan rune loadouts by type and tier, then copy the result as a formatted list for Discord or personal notes. Lets you model builds before committing runes.
